@@ -1,6 +1,8 @@
 
 const User = require('../models/User');
 const ExpressError = require('../utils/ExpressError');
+const jwt = require('jsonwebtoken');
+const config = require('../config');
 
 // ============ USER MANAGEMENT ============
 
@@ -47,9 +49,17 @@ const registerUser = async (req, res) => {
 
     await user.save();
 
+    // Generate JWT token for the user
+    const token = jwt.sign(
+        { userId: user._id },
+        config.JWT_SECRET,
+        { expiresIn: '30d' } // Token expires in 30 days
+    );
+
     res.status(201).json({
         success: true,
         message: 'User registered successfully',
+        token: token, // Include token in response
         user: {
             id: user._id,
             name: user.name,
@@ -62,6 +72,40 @@ const registerUser = async (req, res) => {
     });
 };
 
+// Generate token for existing user (login)
+const generateUserToken = async (req, res) => {
+    const { userId } = req.body;
+
+    if (!userId) {
+        throw new ExpressError('User ID is required', 400);
+    }
+
+    try {
+        // Find user in database
+        const user = await User.findById(userId);
+        if (!user) {
+            throw new ExpressError('User not found', 404);
+        }
+
+        // Generate JWT token for the user
+        const token = jwt.sign(
+            { userId: user._id },
+            config.JWT_SECRET,
+            { expiresIn: '30d' } // Token expires in 30 days
+        );
+
+        res.json({
+            success: true,
+            message: 'Token generated successfully',
+            token: token
+        });
+    } catch (error) {
+        if (error.status) {
+            throw error;
+        }
+        throw new ExpressError('Failed to generate token', 500);
+    }
+};
 
 // Get user profile
 const getUserProfile = async (req, res) => {
@@ -364,6 +408,7 @@ const deleteUser = async (req, res) => {
 
 module.exports = {
     registerUser,
+    generateUserToken,
     getUserProfile,
     updateUserProfile,
     checkUsageLimit,

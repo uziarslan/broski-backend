@@ -5,6 +5,7 @@ const { authenticateUser, authenticateToken, requireAdmin, requireValidSubscript
 const { generalRateLimit, authRateLimit, registrationRateLimit } = require('../middleware/rateLimiting');
 const {
     registerUser,
+    generateUserToken,
     getUserProfile,
     updateUserProfile,
     checkUsageLimit,
@@ -21,6 +22,9 @@ const {
 
 // User registration (rate limited)
 router.post('/register', registrationRateLimit, wrapAsync(registerUser));
+
+// Generate token for existing user (no auth required - for users who registered before token system)
+router.post('/generate-token', generalRateLimit, wrapAsync(generateUserToken));
 
 // Get user profile (requires authentication)
 router.get('/profile/:userId', authenticateUser, generalRateLimit, wrapAsync(getUserProfile));
