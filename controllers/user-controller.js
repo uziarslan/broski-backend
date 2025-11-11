@@ -1,8 +1,94 @@
 
+const mongoose = require('mongoose');
 const User = require('../models/User');
 const ExpressError = require('../utils/ExpressError');
 const jwt = require('jsonwebtoken');
 const config = require('../config');
+const {
+    dailyChallenges,
+    DAILY_CHALLENGE_COUNT,
+    DEFAULT_CHALLENGE_REWARD,
+} = require('../utils/dailyChallenges');
+
+const DAY_IN_MS = 24 * 60 * 60 * 1000;
+
+const pickNextChallengeId = (currentId = -1) => {
+    if (DAILY_CHALLENGE_COUNT === 0) return 0;
+    return (currentId + 1) % DAILY_CHALLENGE_COUNT;
+};
+
+const resolveChallengeLevelName = (level) => {
+    if (level < 5) return 'Rookie';
+    if (level < 15) return 'Smooth Starter';
+    if (level < 30) return 'Flirt Expert';
+    return 'Broski Elite';
+};
+
+const assignNewChallenge = (user) => {
+    const nextId = pickNextChallengeId(typeof user.currentChallengeId === 'number' ? user.currentChallengeId : -1);
+    user.currentChallengeId = nextId;
+    user.challengeAssignedAt = new Date();
+    user.dailyChallengeCompleted = false;
+    user.challengeCompletedAt = null;
+};
+
+const hasChallengeExpired = (user) => {
+    if (!user.challengeAssignedAt) return false;
+    const assignedAt = new Date(user.challengeAssignedAt);
+    if (Number.isNaN(assignedAt.getTime())) return false;
+    const elapsed = Date.now() - assignedAt.getTime();
+    return elapsed >= DAY_IN_MS;
+};
+
+const hasCompletionExpired = (user) => {
+    if (!user.challengeCompletedAt) return false;
+    const completedAt = new Date(user.challengeCompletedAt);
+    if (Number.isNaN(completedAt.getTime())) return false;
+    const elapsed = Date.now() - completedAt.getTime();
+    return elapsed >= DAY_IN_MS;
+};
+
+const ensureDailyChallengeForUser = async (user) => {
+    let mutated = false;
+
+    if (typeof user.currentChallengeId !== 'number' || user.currentChallengeId >= DAILY_CHALLENGE_COUNT) {
+        assignNewChallenge(user);
+        mutated = true;
+    }
+
+    if (user.dailyChallengeCompleted) {
+        if (!user.challengeCompletedAt && user.lastChallengeDate) {
+            const completedAt = new Date(user.lastChallengeDate);
+            if (!Number.isNaN(completedAt.getTime())) {
+                user.challengeCompletedAt = completedAt;
+                mutated = true;
+            }
+        }
+
+        if (hasCompletionExpired(user)) {
+            assignNewChallenge(user);
+            mutated = true;
+        }
+    } else if (hasChallengeExpired(user)) {
+        assignNewChallenge(user);
+        mutated = true;
+    }
+
+    if (mutated) {
+        user.updatedAt = new Date();
+        await user.save();
+    }
+
+    return user;
+};
+
+const serializeSavedReply = (reply) => ({
+    id: reply.id,
+    text: reply.text,
+    tone: reply.tone || '',
+    source: reply.source,
+    savedAt: reply.savedAt,
+});
 
 // ============ USER MANAGEMENT ============
 
@@ -41,9 +127,13 @@ const registerUser = async (req, res) => {
         challengeLevelName: "Rookie",
         dailyChallengeCompleted: false,
         lastChallengeDate: "",
+        currentChallengeId: 0,
+        challengeAssignedAt: new Date(),
+        challengeCompletedAt: null,
         challengeStreak: 0,
         rizzLevelName: "Rookie",
         dailyDrillCompleted: false,
+        savedChatReplies: [],
         lastSyncTime: new Date()
     });
 
@@ -118,6 +208,8 @@ const getUserProfile = async (req, res) => {
             throw new ExpressError('User not found', 404);
         }
 
+        await ensureDailyChallengeForUser(user);
+
         const userProfile = {
             id: user._id,
             name: user.name,
@@ -143,7 +235,11 @@ const getUserProfile = async (req, res) => {
             challengeLevelName: user.challengeLevelName,
             dailyChallengeCompleted: user.dailyChallengeCompleted,
             lastChallengeDate: user.lastChallengeDate,
+            currentChallengeId: user.currentChallengeId,
+            challengeAssignedAt: user.challengeAssignedAt,
+            challengeCompletedAt: user.challengeCompletedAt,
             challengeStreak: user.challengeStreak,
+            savedChatReplies: (user.savedChatReplies || []).map(serializeSavedReply),
             // Rizz Drills
             rizzLevelName: user.rizzLevelName,
             dailyDrillCompleted: user.dailyDrillCompleted,
@@ -295,6 +391,158 @@ const updateSubscription = async (req, res) => {
     });
 };
 
+// Complete daily challenge
+const completeDailyChallenge = async (req, res) => {
+    const { userId } = req.body;
+
+    if (!userId) {
+        throw new ExpressError('User ID is required', 400);
+    }
+
+    const user = await User.findById(userId);
+
+    if (!user) {
+        throw new ExpressError('User not found', 404);
+    }
+
+    await ensureDailyChallengeForUser(user);
+
+    if (user.dailyChallengeCompleted && !hasCompletionExpired(user)) {
+        return res.status(400).json({
+            success: false,
+            message: 'Challenge already completed. Come back after 24 hours for a new one.'
+        });
+    }
+
+    const now = new Date();
+    const reward = dailyChallenges[user.currentChallengeId]?.xp ?? DEFAULT_CHALLENGE_REWARD;
+
+    const previousCompletion = user.challengeCompletedAt ? new Date(user.challengeCompletedAt) : null;
+    const yesterday = new Date(now);
+    yesterday.setDate(yesterday.getDate() - 1);
+
+    const isConsecutiveDay = previousCompletion && previousCompletion.toDateString() === yesterday.toDateString();
+    const challengeStreak = isConsecutiveDay ? user.challengeStreak + 1 : 1;
+
+    const totalXP = (user.totalXP || 0) + reward;
+    const challengeLevel = Math.floor(totalXP / 50) + 1;
+    const challengeLevelName = resolveChallengeLevelName(challengeLevel);
+
+    user.totalXP = totalXP;
+    user.challengeLevel = challengeLevel;
+    user.challengeLevelName = challengeLevelName;
+    user.dailyChallengeCompleted = true;
+    user.lastChallengeDate = now.toDateString();
+    user.challengeCompletedAt = now;
+    user.challengeStreak = challengeStreak;
+
+    await user.save();
+
+    res.json({
+        success: true,
+        message: 'Challenge completed',
+        data: {
+            totalXP: user.totalXP,
+            challengeLevel: user.challengeLevel,
+            challengeLevelName: user.challengeLevelName,
+            challengeStreak: user.challengeStreak,
+            dailyChallengeCompleted: user.dailyChallengeCompleted,
+            challengeCompletedAt: user.challengeCompletedAt,
+            currentChallengeId: user.currentChallengeId,
+        }
+    });
+};
+
+const getSavedChatReplies = async (req, res) => {
+    const userId = req.user?.userId || req.body?.userId;
+
+    if (!userId) {
+        throw new ExpressError('User authentication required', 401);
+    }
+
+    const user = await User.findById(userId);
+    if (!user) {
+        throw new ExpressError('User not found', 404);
+    }
+
+    const savedReplies = (user.savedChatReplies || []).map(serializeSavedReply);
+
+    res.json({
+        success: true,
+        data: savedReplies,
+    });
+};
+
+const addSavedChatReply = async (req, res) => {
+    const userId = req.user?.userId || req.body?.userId;
+    if (!userId) {
+        throw new ExpressError('User authentication required', 401);
+    }
+
+    const { text, tone = '', source = 'chat_coach' } = req.body;
+
+    if (!text || typeof text !== 'string') {
+        throw new ExpressError('Text is required', 400);
+    }
+
+    const normalizedSource = ['chat_coach', 'awkward_situations'].includes(source)
+        ? source
+        : 'chat_coach';
+
+    const user = await User.findById(userId);
+    if (!user) {
+        throw new ExpressError('User not found', 404);
+    }
+
+    const entry = {
+        id: new mongoose.Types.ObjectId().toString(),
+        text,
+        tone,
+        source: normalizedSource,
+        savedAt: new Date(),
+    };
+
+    user.savedChatReplies.unshift(entry);
+    await user.save();
+
+    res.status(201).json({
+        success: true,
+        data: serializeSavedReply(entry),
+    });
+};
+
+const deleteSavedChatReply = async (req, res) => {
+    const userId = req.user?.userId || req.body?.userId;
+    const { replyId } = req.params;
+
+    if (!userId) {
+        throw new ExpressError('User authentication required', 401);
+    }
+
+    if (!replyId) {
+        throw new ExpressError('Reply ID is required', 400);
+    }
+
+    const user = await User.findById(userId);
+    if (!user) {
+        throw new ExpressError('User not found', 404);
+    }
+
+    const index = user.savedChatReplies.findIndex((reply) => reply.id === replyId);
+    if (index === -1) {
+        throw new ExpressError('Saved reply not found', 404);
+    }
+
+    const [removed] = user.savedChatReplies.splice(index, 1);
+    await user.save();
+
+    res.json({
+        success: true,
+        message: 'Saved reply removed',
+        data: serializeSavedReply(removed),
+    });
+};
+
 // Complete daily drill
 const completeDailyDrill = async (req, res) => {
     const { userId, score } = req.body;
@@ -414,6 +662,10 @@ module.exports = {
     checkUsageLimit,
     incrementUsage,
     updateSubscription,
+    getSavedChatReplies,
+    addSavedChatReply,
+    deleteSavedChatReply,
+    completeDailyChallenge,
     completeDailyDrill,
     setDailyConfidence,
     getAllUsers,

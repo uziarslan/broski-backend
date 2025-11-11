@@ -99,6 +99,18 @@ const userSchema = new mongoose.Schema({
         type: String,
         default: ""
     },
+    currentChallengeId: {
+        type: Number,
+        default: 0
+    },
+    challengeAssignedAt: {
+        type: Date,
+        default: () => new Date()
+    },
+    challengeCompletedAt: {
+        type: Date,
+        default: null
+    },
     challengeStreak: {
         type: Number,
         default: 0
@@ -111,6 +123,34 @@ const userSchema = new mongoose.Schema({
     dailyDrillCompleted: {
         type: Boolean,
         default: false
+    },
+    savedChatReplies: {
+        type: [
+            {
+            id: {
+                type: String,
+                required: true
+            },
+            text: {
+                type: String,
+                required: true
+            },
+            tone: {
+                type: String,
+                default: ''
+            },
+            source: {
+                type: String,
+                enum: ['chat_coach', 'awkward_situations'],
+                default: 'chat_coach'
+            },
+            savedAt: {
+                type: Date,
+                default: () => new Date()
+            }
+        }
+        ],
+        default: []
     },
     // Backend sync
     lastSyncTime: {

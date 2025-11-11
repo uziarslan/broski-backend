@@ -11,11 +11,15 @@ const {
     checkUsageLimit,
     incrementUsage,
     updateSubscription,
+    completeDailyChallenge,
     completeDailyDrill,
     setDailyConfidence,
     getAllUsers,
     toggleUserStatus,
-    deleteUser
+    deleteUser,
+    getSavedChatReplies,
+    addSavedChatReply,
+    deleteSavedChatReply
 } = require('../controllers/user-controller');
 
 // ============ USER MANAGEMENT ROUTES ============
@@ -40,6 +44,14 @@ router.post('/usage/increment', authenticateUser, generalRateLimit, wrapAsync(in
 
 // Update subscription (admin only)
 router.put('/subscription/:userId', authenticateToken, requireAdmin, generalRateLimit, wrapAsync(updateSubscription));
+
+// Saved chat replies (requires authentication)
+router.get('/chat-replies', authenticateUser, generalRateLimit, wrapAsync(getSavedChatReplies));
+router.post('/chat-replies', authenticateUser, generalRateLimit, wrapAsync(addSavedChatReply));
+router.delete('/chat-replies/:replyId', authenticateUser, generalRateLimit, wrapAsync(deleteSavedChatReply));
+
+// Complete daily challenge (requires authentication)
+router.post('/challenge/complete', authenticateUser, generalRateLimit, wrapAsync(completeDailyChallenge));
 
 // Complete daily drill (requires authentication)
 router.post('/drill/complete', authenticateUser, requireValidSubscription, generalRateLimit, wrapAsync(completeDailyDrill));
