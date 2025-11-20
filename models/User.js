@@ -17,7 +17,7 @@ const userSchema = new mongoose.Schema({
     },
     subscriptionPlan: {
         type: String,
-        enum: ['weekly', 'monthly', 'yearly'],
+        enum: ['weekly', 'monthly', 'yearly', null],
         default: null
     },
     trialEndDate: {
@@ -27,6 +27,79 @@ const userSchema = new mongoose.Schema({
     isSubscribed: {
         type: Boolean,
         default: false
+    },
+    subscriptionStatus: {
+        type: String,
+        enum: ['none', 'active', 'expired', 'canceled', 'billing_issue'],
+        default: 'none'
+    },
+    subscriptionProductId: {
+        type: String,
+        default: null
+    },
+    subscriptionEntitlementId: {
+        type: String,
+        default: null
+    },
+    subscriptionOriginalAppUserId: {
+        type: String,
+        default: null
+    },
+    subscriptionStore: {
+        type: String,
+        enum: ['app_store', 'play_store', 'stripe', null],
+        default: null
+    },
+    subscriptionEnvironment: {
+        type: String,
+        enum: ['sandbox', 'production', null],
+        default: null
+    },
+    subscriptionPlatform: {
+        type: String,
+        enum: ['ios', 'android', null],
+        default: null
+    },
+    subscriptionLatestPurchaseDate: {
+        type: Date,
+        default: null
+    },
+    subscriptionOriginalPurchaseDate: {
+        type: Date,
+        default: null
+    },
+    subscriptionExpirationDate: {
+        type: Date,
+        default: null
+    },
+    subscriptionWillRenew: {
+        type: Boolean,
+        default: false
+    },
+    subscriptionIsSandbox: {
+        type: Boolean,
+        default: false
+    },
+    subscriptionTrialActive: {
+        type: Boolean,
+        default: false
+    },
+    subscriptionTrialStartDate: {
+        type: Date,
+        default: null
+    },
+    subscriptionTrialEndDate: {
+        type: Date,
+        default: null
+    },
+    subscriptionManagementURL: {
+        type: String,
+        default: null
+    },
+    subscriptionPeriodType: {
+        type: String,
+        enum: ['NORMAL', 'INTRO', 'TRIAL', null],
+        default: null
     },
     // Onboarding data
     userGoal: {
@@ -127,28 +200,28 @@ const userSchema = new mongoose.Schema({
     savedChatReplies: {
         type: [
             {
-            id: {
-                type: String,
-                required: true
-            },
-            text: {
-                type: String,
-                required: true
-            },
-            tone: {
-                type: String,
-                default: ''
-            },
-            source: {
-                type: String,
-                enum: ['chat_coach', 'awkward_situations'],
-                default: 'chat_coach'
-            },
-            savedAt: {
-                type: Date,
-                default: () => new Date()
+                id: {
+                    type: String,
+                    required: true
+                },
+                text: {
+                    type: String,
+                    required: true
+                },
+                tone: {
+                    type: String,
+                    default: ''
+                },
+                source: {
+                    type: String,
+                    enum: ['chat_coach', 'awkward_situations'],
+                    default: 'chat_coach'
+                },
+                savedAt: {
+                    type: Date,
+                    default: () => new Date()
+                }
             }
-        }
         ],
         default: []
     },

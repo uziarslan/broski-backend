@@ -214,7 +214,27 @@ const getUserProfile = async (req, res) => {
             id: user._id,
             name: user.name,
             role: user.role,
+            // Subscription
             subscriptionTier: user.subscriptionTier,
+            subscriptionPlan: user.subscriptionPlan,
+            isSubscribed: user.isSubscribed,
+            trialEndDate: user.trialEndDate,
+            subscriptionStatus: user.subscriptionStatus,
+            subscriptionProductId: user.subscriptionProductId,
+            subscriptionEntitlementId: user.subscriptionEntitlementId,
+            subscriptionOriginalAppUserId: user.subscriptionOriginalAppUserId,
+            subscriptionStore: user.subscriptionStore,
+            subscriptionEnvironment: user.subscriptionEnvironment,
+            subscriptionPlatform: user.subscriptionPlatform,
+            subscriptionLatestPurchaseDate: user.subscriptionLatestPurchaseDate,
+            subscriptionOriginalPurchaseDate: user.subscriptionOriginalPurchaseDate,
+            subscriptionExpirationDate: user.subscriptionExpirationDate,
+            subscriptionWillRenew: user.subscriptionWillRenew,
+            subscriptionTrialActive: user.subscriptionTrialActive,
+            subscriptionTrialStartDate: user.subscriptionTrialStartDate,
+            subscriptionTrialEndDate: user.subscriptionTrialEndDate,
+            subscriptionManagementURL: user.subscriptionManagementURL,
+            subscriptionPeriodType: user.subscriptionPeriodType,
             userGoal: user.userGoal,
             userChallenge: user.userChallenge,
             userPersonality: user.userPersonality,
@@ -295,6 +315,10 @@ const updateUserProfile = async (req, res) => {
                 id: user._id,
                 name: user.name,
                 subscriptionTier: user.subscriptionTier,
+                subscriptionPlan: user.subscriptionPlan,
+                isSubscribed: user.isSubscribed,
+                subscriptionStatus: user.subscriptionStatus,
+                trialEndDate: user.trialEndDate,
                 userGoal: user.userGoal,
                 userChallenge: user.userChallenge,
                 userPersonality: user.userPersonality,
@@ -370,23 +394,97 @@ const incrementUsage = async (req, res) => {
     });
 };
 
-// Update subscription
-const updateSubscription = async (req, res) => {
-    const { userId } = req.params;
-    const { tier, plan, trialEnd } = req.body;
+// Sync subscription data coming from the client (RevenueCat)
+const syncSubscriptionFromClient = async (req, res) => {
+    const userId = req.user?.userId;
 
-    // In a real app, you'd update the database and handle payment processing
-    console.log(`Updating subscription for user ${userId}:`, { tier, plan, trialEnd });
+    if (!userId) {
+        throw new ExpressError('User authentication required', 401);
+    }
+
+    const {
+        status,
+        plan,
+        productId,
+        entitlementId,
+        originalAppUserId,
+        store,
+        environment,
+        platform,
+        latestPurchaseDate,
+        originalPurchaseDate,
+        expirationDate,
+        willRenew,
+        isSandbox,
+        trialStartDate,
+        trialEndDate,
+        periodType,
+        managementURL
+    } = req.body || {};
+
+    const allowedStatus = ['none', 'active', 'expired', 'canceled', 'billing_issue'];
+    const allowedPlans = ['weekly', 'monthly', 'yearly'];
+
+    const normalizedStatus = allowedStatus.includes(status) ? status : 'none';
+    const normalizedPlan = allowedPlans.includes(plan) ? plan : null;
+    const dateOrNull = (value) => (value ? new Date(value) : null);
+
+    const updates = {
+        subscriptionTier: normalizedStatus === 'active' ? 'pro' : 'free',
+        isSubscribed: normalizedStatus === 'active',
+        subscriptionPlan: normalizedPlan,
+        trialEndDate: dateOrNull(trialEndDate),
+        subscriptionStatus: normalizedStatus,
+        subscriptionProductId: productId || null,
+        subscriptionEntitlementId: entitlementId || null,
+        subscriptionOriginalAppUserId: originalAppUserId || null,
+        subscriptionStore: store || null,
+        subscriptionEnvironment: environment || null,
+        subscriptionPlatform: platform || null,
+        subscriptionLatestPurchaseDate: dateOrNull(latestPurchaseDate),
+        subscriptionOriginalPurchaseDate: dateOrNull(originalPurchaseDate),
+        subscriptionExpirationDate: dateOrNull(expirationDate),
+        subscriptionWillRenew: typeof willRenew === 'boolean' ? willRenew : false,
+        subscriptionIsSandbox: typeof isSandbox === 'boolean' ? isSandbox : false,
+        subscriptionTrialActive: normalizedStatus === 'active' && (!!trialEndDate ? new Date(trialEndDate) > new Date() : false),
+        subscriptionTrialStartDate: dateOrNull(trialStartDate),
+        subscriptionTrialEndDate: dateOrNull(trialEndDate),
+        subscriptionManagementURL: managementURL || null,
+        subscriptionPeriodType: periodType || null,
+        lastSyncTime: new Date()
+    };
+
+    if (updates.subscriptionTrialEndDate && !updates.trialEndDate) {
+        updates.trialEndDate = updates.subscriptionTrialEndDate;
+    }
+
+    const user = await User.findByIdAndUpdate(userId, updates, { new: true, runValidators: true });
+
+    if (!user) {
+        throw new ExpressError('User not found', 404);
+    }
 
     res.json({
         success: true,
-        message: 'Subscription updated successfully',
+        message: 'Subscription synced successfully',
         data: {
-            userId,
-            subscriptionTier: tier,
-            plan,
-            trialEnd,
-            updatedAt: new Date().toISOString()
+            subscriptionTier: user.subscriptionTier,
+            subscriptionPlan: user.subscriptionPlan,
+            subscriptionStatus: user.subscriptionStatus,
+            isSubscribed: user.isSubscribed,
+            subscriptionProductId: user.subscriptionProductId,
+            subscriptionEntitlementId: user.subscriptionEntitlementId,
+            subscriptionOriginalAppUserId: user.subscriptionOriginalAppUserId,
+            subscriptionStore: user.subscriptionStore,
+            subscriptionEnvironment: user.subscriptionEnvironment,
+            subscriptionPlatform: user.subscriptionPlatform,
+            subscriptionLatestPurchaseDate: user.subscriptionLatestPurchaseDate,
+            subscriptionOriginalPurchaseDate: user.subscriptionOriginalPurchaseDate,
+            subscriptionExpirationDate: user.subscriptionExpirationDate,
+            subscriptionWillRenew: user.subscriptionWillRenew,
+            subscriptionTrialEndDate: user.subscriptionTrialEndDate,
+            trialEndDate: user.trialEndDate,
+            lastSyncTime: user.lastSyncTime
         }
     });
 };
@@ -661,7 +759,7 @@ module.exports = {
     updateUserProfile,
     checkUsageLimit,
     incrementUsage,
-    updateSubscription,
+    syncSubscriptionFromClient,
     getSavedChatReplies,
     addSavedChatReply,
     deleteSavedChatReply,

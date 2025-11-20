@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const wrapAsync = require('../utils/wrapAsync');
 const { authenticateUser, authenticateToken, requireAdmin, requireValidSubscription } = require('../middleware/auth');
-const { generalRateLimit, authRateLimit, registrationRateLimit } = require('../middleware/rateLimiting');
+const { generalRateLimit, registrationRateLimit } = require('../middleware/rateLimiting');
 const {
     registerUser,
     generateUserToken,
@@ -10,7 +10,7 @@ const {
     updateUserProfile,
     checkUsageLimit,
     incrementUsage,
-    updateSubscription,
+    syncSubscriptionFromClient,
     completeDailyChallenge,
     completeDailyDrill,
     setDailyConfidence,
@@ -42,8 +42,8 @@ router.post('/usage/check', authenticateUser, generalRateLimit, wrapAsync(checkU
 // Increment usage count (requires authentication)
 router.post('/usage/increment', authenticateUser, generalRateLimit, wrapAsync(incrementUsage));
 
-// Update subscription (admin only)
-router.put('/subscription/:userId', authenticateToken, requireAdmin, generalRateLimit, wrapAsync(updateSubscription));
+// Sync subscription data coming from the device (requires authentication)
+router.post('/subscription/sync', authenticateUser, generalRateLimit, wrapAsync(syncSubscriptionFromClient));
 
 // Saved chat replies (requires authentication)
 router.get('/chat-replies', authenticateUser, generalRateLimit, wrapAsync(getSavedChatReplies));
