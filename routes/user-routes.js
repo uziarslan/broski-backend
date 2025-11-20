@@ -6,6 +6,7 @@ const { generalRateLimit, registrationRateLimit } = require('../middleware/rateL
 const {
     registerUser,
     generateUserToken,
+    generateUserTokenFromRevenueCat,
     getUserProfile,
     updateUserProfile,
     checkUsageLimit,
@@ -29,6 +30,7 @@ router.post('/register', registrationRateLimit, wrapAsync(registerUser));
 
 // Generate token for existing user (no auth required - for users who registered before token system)
 router.post('/generate-token', generalRateLimit, wrapAsync(generateUserToken));
+router.post('/generate-token/revenuecat', generalRateLimit, wrapAsync(generateUserTokenFromRevenueCat));
 
 // Get user profile (requires authentication)
 router.get('/profile/:userId', authenticateUser, generalRateLimit, wrapAsync(getUserProfile));

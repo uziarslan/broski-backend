@@ -171,6 +171,10 @@ const generateUserToken = async (req, res) => {
     }
 
     try {
+        if (!mongoose.Types.ObjectId.isValid(userId)) {
+            throw new ExpressError('Invalid user ID', 400);
+        }
+
         // Find user in database
         const user = await User.findById(userId);
         if (!user) {
@@ -188,6 +192,48 @@ const generateUserToken = async (req, res) => {
             success: true,
             message: 'Token generated successfully',
             token: token
+        });
+    } catch (error) {
+        if (error.status) {
+            throw error;
+        }
+        throw new ExpressError('Failed to generate token', 500);
+    }
+};
+
+const generateUserTokenFromRevenueCat = async (req, res) => {
+    const { revenueCatUserId } = req.body;
+
+    if (!revenueCatUserId) {
+        throw new ExpressError('RevenueCat user ID is required', 400);
+    }
+
+    try {
+        const conditions = [
+            { subscriptionOriginalAppUserId: revenueCatUserId }
+        ];
+
+        if (mongoose.Types.ObjectId.isValid(revenueCatUserId)) {
+            conditions.unshift({ _id: revenueCatUserId });
+        }
+
+        const user = await User.findOne({ $or: conditions });
+
+        if (!user) {
+            throw new ExpressError('User not found', 404);
+        }
+
+        const token = jwt.sign(
+            { userId: user._id },
+            config.JWT_SECRET,
+            { expiresIn: '30d' }
+        );
+
+        res.json({
+            success: true,
+            message: 'Token generated successfully',
+            token,
+            userId: user._id.toString()
         });
     } catch (error) {
         if (error.status) {
@@ -755,6 +801,7 @@ const deleteUser = async (req, res) => {
 module.exports = {
     registerUser,
     generateUserToken,
+    generateUserTokenFromRevenueCat,
     getUserProfile,
     updateUserProfile,
     checkUsageLimit,
