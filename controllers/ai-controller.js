@@ -52,7 +52,6 @@ const generateChatReplies = async (req, res) => {
             res.json({ success: true, data: { smooth: "I like where this is going... what else?", funny: "Hey, that's interesting! Tell me more 😄", real: "That's cool. What made you think of that?", tip: "Keep it natural bro, you got this 💪" } });
         }
     } catch (error) {
-        console.error("Error generating chat replies:", error);
         res.json({ success: true, data: { smooth: "I like where this is going... what else?", funny: "Hey, that's interesting! Tell me more 😄", real: "That's cool. What made you think of that?", tip: "Keep it natural bro, you got this 💪" } });
     }
 };
@@ -82,7 +81,6 @@ const generateDailyRizzDrill = async (req, res) => {
             res.json({ success: true, data: { scenario: "You're texting your crush", challenge: "She says: 'You're so quiet 😅' - What do you reply?" } });
         }
     } catch (error) {
-        console.error("Error generating drill:", error);
         res.json({ success: true, data: { scenario: "You're texting your crush", challenge: "She says: 'You're so quiet 😅' - What do you reply?" } });
     }
 };
@@ -120,7 +118,6 @@ const scoreRizzDrillResponse = async (req, res) => {
             res.json({ success: true, data: { score: 6, feedback: "Not bad! Keep practicing to improve your delivery.", suggestion: "Try being more playful and confident in your tone." } });
         }
     } catch (error) {
-        console.error("Error scoring drill:", error);
         res.json({ success: true, data: { score: 6, feedback: "Not bad! Keep practicing to improve your delivery.", suggestion: "Try being more playful and confident in your tone." } });
     }
 };
@@ -142,7 +139,6 @@ const generateConfidenceMessage = async (req, res) => {
         const message = response.content.replace(/^["']|["']$/g, "").trim();
         res.json({ success: true, data: { message } });
     } catch (error) {
-        console.error("Error generating confidence message:", error);
         res.json({ success: true, data: { message: "You've got this, bro. She's lucky to text you." } });
     }
 };
@@ -198,7 +194,6 @@ const generateAwkwardSituationRecovery = async (req, res) => {
             res.json({ success: true, data: { smooth: "I think you're just playing hard to get 😏 But I'm patient", funny: "Haha fair, I'll give you that one 😅 But I promise my jokes get better", real: "Hey no worries, just wanted to check in and see what's up" } });
         }
     } catch (error) {
-        console.error("Error generating awkward situation recovery:", error);
         res.json({ success: true, data: { smooth: "I think you're just playing hard to get 😏 But I'm patient", funny: "Haha fair, I'll give you that one 😅 But I promise my jokes get better", real: "Hey no worries, just wanted to check in and see what's up" } });
     }
 };
@@ -262,23 +257,18 @@ const analyzeScreenshot = async (req, res) => {
         setImmediate(async () => {
             try {
                 await cloudinary.uploader.destroy(cloudinaryPublicId);
-                console.log(`Screenshot ${cloudinaryPublicId} deleted from Cloudinary`);
             } catch (cleanupError) {
-                console.error(`Failed to delete screenshot ${cloudinaryPublicId}:`, cleanupError);
             }
         });
 
         res.json({ success: true, data: result });
     } catch (error) {
-        console.error("Error analyzing screenshot:", error);
 
         // Clean up uploaded file if analysis fails
         if (cloudinaryPublicId) {
             try {
                 await cloudinary.uploader.destroy(cloudinaryPublicId);
-                console.log(`Screenshot ${cloudinaryPublicId} deleted due to error`);
             } catch (cleanupError) {
-                console.error(`Failed to delete screenshot ${cloudinaryPublicId}:`, cleanupError);
             }
         }
 

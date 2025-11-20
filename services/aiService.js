@@ -11,7 +11,6 @@ try {
         apiKey: config.OPENAI_API_KEY,
     });
 } catch (error) {
-    console.warn('OpenAI client not initialized:', error.message);
     openai = null;
 }
 
@@ -96,7 +95,6 @@ const getChatGPTAssistantImageResponse = async (assistantId, message, imageUrl, 
             },
         };
     } catch (error) {
-        console.error("ChatGPT Assistant Image API Error:", error);
 
         // Provide more helpful error messages
         if (error.message.includes('API key') || error.message.includes('not configured')) {
@@ -180,7 +178,6 @@ const getChatGPTAssistantResponse = async (assistantId, message = "", options = 
             },
         };
     } catch (error) {
-        console.error("ChatGPT Assistant API Error:", error);
 
         // Provide more helpful error messages
         if (error.message.includes('API key') || error.message.includes('not configured')) {

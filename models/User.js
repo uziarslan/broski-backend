@@ -20,10 +20,6 @@ const userSchema = new mongoose.Schema({
         enum: ['weekly', 'monthly', 'yearly', null],
         default: null
     },
-    trialEndDate: {
-        type: Date,
-        default: null
-    },
     isSubscribed: {
         type: Boolean,
         default: false
@@ -76,30 +72,9 @@ const userSchema = new mongoose.Schema({
         type: Boolean,
         default: false
     },
-    subscriptionIsSandbox: {
-        type: Boolean,
-        default: false
-    },
-    subscriptionTrialActive: {
-        type: Boolean,
-        default: false
-    },
-    subscriptionTrialStartDate: {
-        type: Date,
-        default: null
-    },
-    subscriptionTrialEndDate: {
-        type: Date,
-        default: null
-    },
-    subscriptionManagementURL: {
-        type: String,
-        default: null
-    },
-    subscriptionPeriodType: {
-        type: String,
-        enum: ['NORMAL', 'INTRO', 'TRIAL', null],
-        default: null
+    revenueCatAliases: {
+        type: [String],
+        default: []
     },
     // Onboarding data
     userGoal: {

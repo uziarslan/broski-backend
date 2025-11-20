@@ -9,11 +9,9 @@ mongoose.connect(config.MONGODB_URI, {
     useUnifiedTopology: true
 })
     .then(() => {
-        console.log('Connected to MongoDB');
         createAdmin();
     })
     .catch((error) => {
-        console.error('MongoDB connection error:', error);
         process.exit(1);
     });
 
@@ -26,8 +24,6 @@ async function createAdmin() {
         // Check if admin already exists
         const existingAdmin = await Admin.findOne({ email: adminEmail });
         if (existingAdmin) {
-            console.log('Admin user already exists with email:', adminEmail);
-            console.log('Admin ID:', existingAdmin._id);
             process.exit(0);
         }
 
@@ -45,19 +41,9 @@ async function createAdmin() {
 
         await admin.save();
 
-        console.log('✅ Admin user created successfully!');
-        console.log('📧 Email:', adminEmail);
-        console.log('🔑 Password:', adminPassword);
-        console.log('🆔 Admin ID:', admin._id);
-        console.log('👤 Name:', adminName);
-        console.log('🔐 Role:', admin.role);
-        console.log('📅 Created at:', admin.createdAt);
-
     } catch (error) {
-        console.error('❌ Error creating admin user:', error);
     } finally {
         mongoose.connection.close();
-        console.log('🔌 Database connection closed');
         process.exit(0);
     }
 }

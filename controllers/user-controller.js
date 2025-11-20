@@ -1,5 +1,6 @@
 
 const mongoose = require('mongoose');
+const axios = require('axios');
 const User = require('../models/User');
 const ExpressError = require('../utils/ExpressError');
 const jwt = require('jsonwebtoken');
@@ -201,27 +202,122 @@ const generateUserToken = async (req, res) => {
     }
 };
 
+const fetchUserIdFromRevenueCat = async (revenueCatUserId) => {
+    if (!config.REVENUECAT_API_KEY) {
+        return null;
+    }
+
+    try {
+        const response = await axios.get(`https://api.revenuecat.com/v1/subscribers/${encodeURIComponent(revenueCatUserId)}`, {
+            headers: {
+                Authorization: `Bearer ${config.REVENUECAT_API_KEY}`,
+            },
+            timeout: 5000,
+        });
+
+        const subscriber = response.data?.subscriber;
+        if (!subscriber) {
+            return null;
+        }
+
+        // Try subscriber attributes first
+        const attributeUserId = subscriber.attributes?.mongo_user_id?.value;
+        if (attributeUserId && mongoose.Types.ObjectId.isValid(attributeUserId)) {
+            const attrUser = await User.findById(attributeUserId);
+            if (attrUser) {
+                return attrUser;
+            }
+        }
+
+        // Collect all aliases including the current app user ID
+        const aliases = [revenueCatUserId, ...(subscriber.aliases || [])];
+
+        // First, try to find by MongoDB ObjectId
+        for (const alias of aliases) {
+            if (mongoose.Types.ObjectId.isValid(alias)) {
+                const user = await User.findById(alias);
+                if (user) {
+                    return user;
+                }
+            }
+        }
+
+        // Then, try to find by subscriptionOriginalAppUserId or revenueCatAliases
+        for (const alias of aliases) {
+            const user = await User.findOne({
+                $or: [
+                    { subscriptionOriginalAppUserId: alias },
+                    { revenueCatAliases: { $in: [alias] } }
+                ]
+            });
+            if (user) {
+                return user;
+            }
+        }
+
+    } catch (error) {
+    }
+
+    return null;
+};
+
+const appendRevenueCatAlias = async (user, alias) => {
+    if (!alias) return;
+
+    const aliases = new Set(user.revenueCatAliases || []);
+    aliases.add(alias);
+    user.revenueCatAliases = Array.from(aliases);
+
+    if (!user.subscriptionOriginalAppUserId || user.subscriptionOriginalAppUserId !== alias) {
+        user.subscriptionOriginalAppUserId = alias;
+    }
+
+    await user.save();
+};
+
 const generateUserTokenFromRevenueCat = async (req, res) => {
-    const { revenueCatUserId } = req.body;
+    const { revenueCatUserId, fallback } = req.body;
 
     if (!revenueCatUserId) {
         throw new ExpressError('RevenueCat user ID is required', 400);
     }
 
     try {
-        const conditions = [
-            { subscriptionOriginalAppUserId: revenueCatUserId }
-        ];
 
-        if (mongoose.Types.ObjectId.isValid(revenueCatUserId)) {
-            conditions.unshift({ _id: revenueCatUserId });
-        }
+        const user = await (async () => {
+            const conditions = [
+                { subscriptionOriginalAppUserId: revenueCatUserId },
+                { revenueCatAliases: { $in: [revenueCatUserId] } }
+            ];
 
-        const user = await User.findOne({ $or: conditions });
+            if (mongoose.Types.ObjectId.isValid(revenueCatUserId)) {
+                conditions.unshift({ _id: revenueCatUserId });
+            }
+
+            const found = await User.findOne({ $or: conditions });
+            if (found) {
+                return found;
+            }
+            const viaRevenueCatApi = await fetchUserIdFromRevenueCat(revenueCatUserId);
+            if (viaRevenueCatApi) {
+                return viaRevenueCatApi;
+            }
+
+            if (fallback) {
+                const fallbackUser = await findUserByFallback(fallback);
+                if (fallbackUser) {
+                    return fallbackUser;
+                }
+            }
+
+            return null;
+        })();
 
         if (!user) {
             throw new ExpressError('User not found', 404);
         }
+
+        await appendRevenueCatAlias(user, revenueCatUserId);
 
         const token = jwt.sign(
             { userId: user._id },
@@ -241,6 +337,65 @@ const generateUserTokenFromRevenueCat = async (req, res) => {
         }
         throw new ExpressError('Failed to generate token', 500);
     }
+};
+
+const findUserByFallback = async (fallback) => {
+    const queries = [];
+
+    if (fallback.originalAppUserId) {
+        queries.push({ subscriptionOriginalAppUserId: fallback.originalAppUserId });
+        queries.push({ revenueCatAliases: { $in: [fallback.originalAppUserId] } });
+    }
+
+    if (fallback.productId) {
+        queries.push({ subscriptionProductId: fallback.productId });
+    }
+
+    if (fallback.originalPurchaseDate) {
+        const date = new Date(fallback.originalPurchaseDate);
+        if (!Number.isNaN(date.getTime())) {
+            const start = new Date(date.getTime() - 5 * 60 * 1000);
+            const end = new Date(date.getTime() + 5 * 60 * 1000);
+            queries.push({
+                subscriptionOriginalPurchaseDate: {
+                    $gte: start,
+                    $lte: end
+                }
+            });
+        }
+    }
+
+    if (queries.length === 0) {
+        return null;
+    }
+
+    return User.findOne({ $or: queries });
+};
+
+const registerRevenueCatAlias = async (req, res) => {
+    const { revenueCatUserId } = req.body;
+    const userId = req.user?.userId;
+
+    if (!revenueCatUserId) {
+        throw new ExpressError('RevenueCat user ID is required', 400);
+    }
+
+    if (!userId) {
+        throw new ExpressError('Unauthorized', 401);
+    }
+
+    const user = await User.findById(userId);
+    if (!user) {
+        throw new ExpressError('User not found', 404);
+    }
+
+    await appendRevenueCatAlias(user, revenueCatUserId);
+
+    res.json({
+        success: true,
+        message: 'RevenueCat alias registered',
+        aliases: user.revenueCatAliases,
+    });
 };
 
 // Get user profile
@@ -264,7 +419,6 @@ const getUserProfile = async (req, res) => {
             subscriptionTier: user.subscriptionTier,
             subscriptionPlan: user.subscriptionPlan,
             isSubscribed: user.isSubscribed,
-            trialEndDate: user.trialEndDate,
             subscriptionStatus: user.subscriptionStatus,
             subscriptionProductId: user.subscriptionProductId,
             subscriptionEntitlementId: user.subscriptionEntitlementId,
@@ -276,11 +430,6 @@ const getUserProfile = async (req, res) => {
             subscriptionOriginalPurchaseDate: user.subscriptionOriginalPurchaseDate,
             subscriptionExpirationDate: user.subscriptionExpirationDate,
             subscriptionWillRenew: user.subscriptionWillRenew,
-            subscriptionTrialActive: user.subscriptionTrialActive,
-            subscriptionTrialStartDate: user.subscriptionTrialStartDate,
-            subscriptionTrialEndDate: user.subscriptionTrialEndDate,
-            subscriptionManagementURL: user.subscriptionManagementURL,
-            subscriptionPeriodType: user.subscriptionPeriodType,
             userGoal: user.userGoal,
             userChallenge: user.userChallenge,
             userPersonality: user.userPersonality,
@@ -319,7 +468,6 @@ const getUserProfile = async (req, res) => {
 
         res.json({ success: true, data: userProfile });
     } catch (error) {
-        console.error('Error fetching user profile:', error);
 
         // If it's already an ExpressError, re-throw it with the original status
         if (error.status) {
@@ -352,7 +500,6 @@ const updateUserProfile = async (req, res) => {
             throw new ExpressError('User not found', 404);
         }
 
-        console.log(`Updated user ${userId}:`, updates);
 
         res.json({
             success: true,
@@ -364,7 +511,6 @@ const updateUserProfile = async (req, res) => {
                 subscriptionPlan: user.subscriptionPlan,
                 isSubscribed: user.isSubscribed,
                 subscriptionStatus: user.subscriptionStatus,
-                trialEndDate: user.trialEndDate,
                 userGoal: user.userGoal,
                 userChallenge: user.userChallenge,
                 userPersonality: user.userPersonality,
@@ -379,7 +525,6 @@ const updateUserProfile = async (req, res) => {
             }
         });
     } catch (error) {
-        console.error('Error updating user profile:', error);
 
         // If it's already an ExpressError, re-throw it with the original status
         if (error.status) {
@@ -460,12 +605,7 @@ const syncSubscriptionFromClient = async (req, res) => {
         latestPurchaseDate,
         originalPurchaseDate,
         expirationDate,
-        willRenew,
-        isSandbox,
-        trialStartDate,
-        trialEndDate,
-        periodType,
-        managementURL
+        willRenew
     } = req.body || {};
 
     const allowedStatus = ['none', 'active', 'expired', 'canceled', 'billing_issue'];
@@ -479,11 +619,9 @@ const syncSubscriptionFromClient = async (req, res) => {
         subscriptionTier: normalizedStatus === 'active' ? 'pro' : 'free',
         isSubscribed: normalizedStatus === 'active',
         subscriptionPlan: normalizedPlan,
-        trialEndDate: dateOrNull(trialEndDate),
         subscriptionStatus: normalizedStatus,
         subscriptionProductId: productId || null,
         subscriptionEntitlementId: entitlementId || null,
-        subscriptionOriginalAppUserId: originalAppUserId || null,
         subscriptionStore: store || null,
         subscriptionEnvironment: environment || null,
         subscriptionPlatform: platform || null,
@@ -491,20 +629,38 @@ const syncSubscriptionFromClient = async (req, res) => {
         subscriptionOriginalPurchaseDate: dateOrNull(originalPurchaseDate),
         subscriptionExpirationDate: dateOrNull(expirationDate),
         subscriptionWillRenew: typeof willRenew === 'boolean' ? willRenew : false,
-        subscriptionIsSandbox: typeof isSandbox === 'boolean' ? isSandbox : false,
-        subscriptionTrialActive: normalizedStatus === 'active' && (!!trialEndDate ? new Date(trialEndDate) > new Date() : false),
-        subscriptionTrialStartDate: dateOrNull(trialStartDate),
-        subscriptionTrialEndDate: dateOrNull(trialEndDate),
-        subscriptionManagementURL: managementURL || null,
-        subscriptionPeriodType: periodType || null,
         lastSyncTime: new Date()
     };
 
-    if (updates.subscriptionTrialEndDate && !updates.trialEndDate) {
-        updates.trialEndDate = updates.subscriptionTrialEndDate;
+    const updateDoc = { $set: updates };
+
+    const aliasesToAdd = [];
+    let resolvedOriginalAppUserId = null;
+
+    if (originalAppUserId) {
+        aliasesToAdd.push(originalAppUserId);
+
+        if (mongoose.Types.ObjectId.isValid(originalAppUserId) && !originalAppUserId.startsWith('$RC')) {
+            resolvedOriginalAppUserId = originalAppUserId;
+        }
     }
 
-    const user = await User.findByIdAndUpdate(userId, updates, { new: true, runValidators: true });
+    if (!resolvedOriginalAppUserId && mongoose.Types.ObjectId.isValid(userId)) {
+        resolvedOriginalAppUserId = userId;
+    }
+
+    if (resolvedOriginalAppUserId) {
+        updateDoc.$set.subscriptionOriginalAppUserId = resolvedOriginalAppUserId;
+        if (!aliasesToAdd.includes(resolvedOriginalAppUserId)) {
+            aliasesToAdd.push(resolvedOriginalAppUserId);
+        }
+    }
+
+    if (aliasesToAdd.length > 0) {
+        updateDoc.$addToSet = { revenueCatAliases: { $each: aliasesToAdd } };
+    }
+
+    const user = await User.findByIdAndUpdate(userId, updateDoc, { new: true, runValidators: true });
 
     if (!user) {
         throw new ExpressError('User not found', 404);
@@ -528,8 +684,6 @@ const syncSubscriptionFromClient = async (req, res) => {
             subscriptionOriginalPurchaseDate: user.subscriptionOriginalPurchaseDate,
             subscriptionExpirationDate: user.subscriptionExpirationDate,
             subscriptionWillRenew: user.subscriptionWillRenew,
-            subscriptionTrialEndDate: user.subscriptionTrialEndDate,
-            trialEndDate: user.trialEndDate,
             lastSyncTime: user.lastSyncTime
         }
     });
@@ -692,7 +846,6 @@ const completeDailyDrill = async (req, res) => {
     const { userId, score } = req.body;
 
     // In a real app, you'd update the database
-    console.log(`User ${userId} completed daily drill with score: ${score}`);
 
     res.json({
         success: true,
@@ -710,7 +863,6 @@ const setDailyConfidence = async (req, res) => {
     const { userId, message } = req.body;
 
     // In a real app, you'd update the database
-    console.log(`Setting daily confidence message for user ${userId}:`, message);
 
     res.json({
         success: true,
@@ -734,7 +886,6 @@ const getAllUsers = async (req, res) => {
             count: users.length
         });
     } catch (error) {
-        console.error('Error fetching all users:', error);
         throw new ExpressError('Failed to fetch users', 500);
     }
 };
@@ -766,7 +917,6 @@ const toggleUserStatus = async (req, res) => {
             data: updatedUser
         });
     } catch (error) {
-        console.error('Error toggling user status:', error);
         if (error.status) {
             throw error;
         }
@@ -790,7 +940,6 @@ const deleteUser = async (req, res) => {
             message: 'User deleted successfully'
         });
     } catch (error) {
-        console.error('Error deleting user:', error);
         if (error.status) {
             throw error;
         }
@@ -802,6 +951,7 @@ module.exports = {
     registerUser,
     generateUserToken,
     generateUserTokenFromRevenueCat,
+    registerRevenueCatAlias,
     getUserProfile,
     updateUserProfile,
     checkUsageLimit,

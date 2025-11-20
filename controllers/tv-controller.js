@@ -94,7 +94,6 @@ const addVideo = wrapAsync(async (req, res) => {
         if (req.file && platform === 'instagram') {
             // Use the uploaded thumbnail from Cloudinary
             thumbnail = req.file.path;
-            console.log('Using uploaded thumbnail for Instagram:', thumbnail);
         } else {
             // Generate thumbnail URL using helper function
             thumbnail = generateThumbnailUrl(platform, videoId, videoUrl);
@@ -104,7 +103,6 @@ const addVideo = wrapAsync(async (req, res) => {
                 try {
                     thumbnail = await fetchThumbnailFromOEmbed(platform, videoUrl);
                 } catch (error) {
-                    console.error('Error fetching TikTok thumbnail:', error);
                     thumbnail = '';
                 }
             }
@@ -120,7 +118,6 @@ const addVideo = wrapAsync(async (req, res) => {
                         thumbnail = await generateInstagramThumbnail(videoUrl);
                     }
                 } catch (error) {
-                    console.error('Error generating Instagram thumbnail:', error);
                     thumbnail = '';
                 }
             }
@@ -146,13 +143,6 @@ const addVideo = wrapAsync(async (req, res) => {
 
         await video.save();
 
-        // Log the video data for debugging
-        console.log('Video added successfully:', {
-            title,
-            platform,
-            videoId,
-            videoUrl
-        });
 
         res.status(201).json({
             success: true,
@@ -235,7 +225,6 @@ async function fetchThumbnailFromOEmbed(platform, videoUrl) {
         });
 
         if (!response.ok) {
-            console.error(`${platform} oEmbed API error: ${response.status} ${response.statusText}`);
             return '';
         }
 
@@ -248,7 +237,6 @@ async function fetchThumbnailFromOEmbed(platform, videoUrl) {
 
         return '';
     } catch (error) {
-        console.error(`Error fetching thumbnail for ${platform}:`, error);
         return '';
     }
 }
@@ -266,7 +254,6 @@ async function generateInstagramThumbnail(videoUrl) {
         });
 
         if (!response.ok) {
-            console.error(`Instagram oEmbed API error: ${response.status} ${response.statusText}`);
             return '';
         }
 
@@ -277,10 +264,8 @@ async function generateInstagramThumbnail(videoUrl) {
             return data.thumbnail_url;
         }
 
-        console.log('Instagram oEmbed response:', data);
         return '';
     } catch (error) {
-        console.error('Error generating Instagram thumbnail:', error);
         return '';
     }
 }
@@ -342,13 +327,10 @@ const deleteVideo = wrapAsync(async (req, res) => {
                 await cloudinary.uploader.destroy(video.cloudinaryPublicId, {
                     resource_type: 'video'
                 });
-                console.log('Successfully deleted from Cloudinary:', video.cloudinaryPublicId);
             } catch (cloudinaryError) {
-                console.error('Cloudinary deletion failed:', cloudinaryError);
                 // Continue with database deletion even if Cloudinary fails
             }
         } else {
-            console.log('No cloudinaryPublicId found, skipping Cloudinary deletion');
         }
 
         // Delete from database
@@ -360,7 +342,6 @@ const deleteVideo = wrapAsync(async (req, res) => {
         });
 
     } catch (error) {
-        console.error('Error deleting video:', error);
         throw new ExpressError('Failed to delete video', 500);
     }
 });
@@ -465,7 +446,6 @@ const updateMissingThumbnails = wrapAsync(async (req, res) => {
                 try {
                     thumbnailUrl = await fetchThumbnailFromOEmbed(video.platform, video.videoUrl);
                 } catch (error) {
-                    console.error('Error fetching TikTok thumbnail:', error);
                 }
             }
 
@@ -480,7 +460,6 @@ const updateMissingThumbnails = wrapAsync(async (req, res) => {
                         thumbnailUrl = await generateInstagramThumbnail(video.videoUrl);
                     }
                 } catch (error) {
-                    console.error('Error generating Instagram thumbnail:', error);
                 }
             }
 
