@@ -85,6 +85,7 @@ const aiRoutes = require('./routes/ai-routes');
 const userRoutes = require('./routes/user-routes');
 const authRoutes = require('./routes/auth-routes');
 const tvRoutes = require('./routes/tv-routes');
+const supportFeedbackRoutes = require('./routes/support-feedback-routes');
 
 // Use routes
 app.use('/api/ai', aiRoutes);
@@ -92,6 +93,7 @@ app.use('/api/user', userRoutes);
 app.use('/api/users', userRoutes); // Add this for admin panel compatibility
 app.use('/api/auth', authRoutes);
 app.use('/api/tv', tvRoutes);
+app.use('/api', supportFeedbackRoutes);
 
 // CORS is handled by the cors middleware above
 

@@ -72,6 +72,10 @@ const userSchema = new mongoose.Schema({
         type: Boolean,
         default: false
     },
+    isInTrialPeriod: {
+        type: Boolean,
+        default: false
+    },
     revenueCatAliases: {
         type: [String],
         default: []
@@ -123,6 +127,15 @@ const userSchema = new mongoose.Schema({
         default: 3
     },
     lastWingItResetDate: {
+        type: String,
+        default: () => new Date().toDateString()
+    },
+    // Trial Request Tracking
+    trialRequestCount: {
+        type: Number,
+        default: 0
+    },
+    lastTrialRequestResetDate: {
         type: String,
         default: () => new Date().toDateString()
     },

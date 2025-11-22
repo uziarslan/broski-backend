@@ -430,6 +430,9 @@ const getUserProfile = async (req, res) => {
             subscriptionOriginalPurchaseDate: user.subscriptionOriginalPurchaseDate,
             subscriptionExpirationDate: user.subscriptionExpirationDate,
             subscriptionWillRenew: user.subscriptionWillRenew,
+            isInTrialPeriod: user.isInTrialPeriod,
+            trialRequestCount: user.trialRequestCount,
+            lastTrialRequestResetDate: user.lastTrialRequestResetDate,
             userGoal: user.userGoal,
             userChallenge: user.userChallenge,
             userPersonality: user.userPersonality,
@@ -605,8 +608,14 @@ const syncSubscriptionFromClient = async (req, res) => {
         latestPurchaseDate,
         originalPurchaseDate,
         expirationDate,
-        willRenew
+        willRenew,
+        periodType
     } = req.body || {};
+
+    // Debug: Log received periodType
+    if (process.env.NODE_ENV !== 'production') {
+        console.log('[Subscription Sync] Received periodType:', periodType, 'from body:', JSON.stringify(req.body, null, 2));
+    }
 
     const allowedStatus = ['none', 'active', 'expired', 'canceled', 'billing_issue'];
     const allowedPlans = ['weekly', 'monthly', 'yearly'];
@@ -614,6 +623,37 @@ const syncSubscriptionFromClient = async (req, res) => {
     const normalizedStatus = allowedStatus.includes(status) ? status : 'none';
     const normalizedPlan = allowedPlans.includes(plan) ? plan : null;
     const dateOrNull = (value) => (value ? new Date(value) : null);
+
+    // Check if user is in trial period
+    // Also check dates to infer trial status if periodType is not provided
+    let isInTrial = periodType === 'trial' || periodType === 'TRIAL';
+    
+    // Fallback: If periodType is not 'trial' but subscription is active and dates suggest trial
+    // This handles cases where RevenueCat returns "NORMAL" even during trial period
+    if (!isInTrial && normalizedStatus === 'active' && originalPurchaseDate && expirationDate) {
+        const purchaseDate = new Date(originalPurchaseDate);
+        const expDate = new Date(expirationDate);
+        const now = new Date();
+        
+        const daysSinceOriginal = (now.getTime() - purchaseDate.getTime()) / (1000 * 60 * 60 * 24);
+        const daysUntilExpiration = (expDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24);
+        const totalDays = (expDate.getTime() - purchaseDate.getTime()) / (1000 * 60 * 60 * 24);
+        
+        // If subscription is within first 3-4 days of original purchase and expires soon, it's likely a trial
+        // Also check if total duration is around 3 days (trial period)
+        if (daysSinceOriginal <= 4 && daysUntilExpiration >= 0 && daysUntilExpiration <= 4 && totalDays >= 2.5 && totalDays <= 4) {
+            isInTrial = true;
+            if (process.env.NODE_ENV !== 'production') {
+                console.log('[Subscription Sync] Detected trial based on dates:', {
+                    daysSinceOriginal: daysSinceOriginal.toFixed(2),
+                    daysUntilExpiration: daysUntilExpiration.toFixed(2),
+                    totalDays: totalDays.toFixed(2),
+                    originalPurchaseDate,
+                    expirationDate
+                });
+            }
+        }
+    }
 
     const updates = {
         subscriptionTier: normalizedStatus === 'active' ? 'pro' : 'free',
@@ -629,6 +669,7 @@ const syncSubscriptionFromClient = async (req, res) => {
         subscriptionOriginalPurchaseDate: dateOrNull(originalPurchaseDate),
         subscriptionExpirationDate: dateOrNull(expirationDate),
         subscriptionWillRenew: typeof willRenew === 'boolean' ? willRenew : false,
+        isInTrialPeriod: isInTrial,
         lastSyncTime: new Date()
     };
 
@@ -684,6 +725,9 @@ const syncSubscriptionFromClient = async (req, res) => {
             subscriptionOriginalPurchaseDate: user.subscriptionOriginalPurchaseDate,
             subscriptionExpirationDate: user.subscriptionExpirationDate,
             subscriptionWillRenew: user.subscriptionWillRenew,
+            isInTrialPeriod: user.isInTrialPeriod,
+            trialRequestCount: user.trialRequestCount,
+            lastTrialRequestResetDate: user.lastTrialRequestResetDate,
             lastSyncTime: user.lastSyncTime
         }
     });
@@ -703,6 +747,10 @@ const completeDailyChallenge = async (req, res) => {
         throw new ExpressError('User not found', 404);
     }
 
+    // Save the previous completion date BEFORE ensureDailyChallengeForUser potentially resets it
+    const previousCompletionDate = user.challengeCompletedAt ? new Date(user.challengeCompletedAt) : null;
+    const previousStreak = user.challengeStreak || 0;
+
     await ensureDailyChallengeForUser(user);
 
     if (user.dailyChallengeCompleted && !hasCompletionExpired(user)) {
@@ -715,12 +763,21 @@ const completeDailyChallenge = async (req, res) => {
     const now = new Date();
     const reward = dailyChallenges[user.currentChallengeId]?.xp ?? DEFAULT_CHALLENGE_REWARD;
 
-    const previousCompletion = user.challengeCompletedAt ? new Date(user.challengeCompletedAt) : null;
+    // Use the saved previousCompletionDate for streak calculation
     const yesterday = new Date(now);
     yesterday.setDate(yesterday.getDate() - 1);
+    yesterday.setHours(0, 0, 0, 0); // Normalize to start of day for accurate date comparison
 
-    const isConsecutiveDay = previousCompletion && previousCompletion.toDateString() === yesterday.toDateString();
-    const challengeStreak = isConsecutiveDay ? user.challengeStreak + 1 : 1;
+    // Check if previous completion was yesterday (consecutive day)
+    let isConsecutiveDay = false;
+    if (previousCompletionDate) {
+        const previousDate = new Date(previousCompletionDate);
+        previousDate.setHours(0, 0, 0, 0); // Normalize to start of day
+        isConsecutiveDay = previousDate.getTime() === yesterday.getTime();
+    }
+
+    // Calculate streak: increment if consecutive, reset to 1 if not
+    const challengeStreak = isConsecutiveDay ? previousStreak + 1 : 1;
 
     const totalXP = (user.totalXP || 0) + reward;
     const challengeLevel = Math.floor(totalXP / 50) + 1;

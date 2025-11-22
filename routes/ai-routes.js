@@ -5,6 +5,7 @@ const multer = require('multer');
 const { screenshotStorage } = require('../cloudinary');
 const { authenticateUser, requireValidSubscription } = require('../middleware/auth');
 const { aiRateLimit } = require('../middleware/rateLimiting');
+const { checkTrialRequestLimit } = require('../middleware/trialLimiting');
 const {
     generateChatReplies,
     generateDailyRizzDrill,
@@ -25,7 +26,7 @@ const upload = multer({
 // ============ AI SERVICE ROUTES ============
 
 // Chat Coach - Generate reply suggestions (requires user authentication)
-router.post('/chat-replies', authenticateUser, requireValidSubscription, aiRateLimit, wrapAsync(generateChatReplies));
+router.post('/chat-replies', authenticateUser, requireValidSubscription, checkTrialRequestLimit, aiRateLimit, wrapAsync(generateChatReplies));
 
 // Rizz Drills - Generate daily drill (requires user authentication)
 router.get('/rizz-drill', authenticateUser, requireValidSubscription, aiRateLimit, wrapAsync(generateDailyRizzDrill));
@@ -37,9 +38,9 @@ router.post('/score-drill', authenticateUser, requireValidSubscription, aiRateLi
 router.get('/confidence-message', authenticateUser, requireValidSubscription, aiRateLimit, wrapAsync(generateConfidenceMessage));
 
 // Awkward Situations - Generate recovery messages (requires user authentication)
-router.post('/awkward-situation-recovery', authenticateUser, requireValidSubscription, aiRateLimit, wrapAsync(generateAwkwardSituationRecovery));
+router.post('/awkward-situation-recovery', authenticateUser, requireValidSubscription, checkTrialRequestLimit, aiRateLimit, wrapAsync(generateAwkwardSituationRecovery));
 
 // Screenshot Analysis (requires user authentication)
-router.post('/analyze-screenshot', authenticateUser, requireValidSubscription, aiRateLimit, upload.single('image'), wrapAsync(analyzeScreenshot));
+router.post('/analyze-screenshot', authenticateUser, requireValidSubscription, checkTrialRequestLimit, aiRateLimit, upload.single('image'), wrapAsync(analyzeScreenshot));
 
 module.exports = router;

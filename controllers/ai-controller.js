@@ -46,13 +46,25 @@ const generateChatReplies = async (req, res) => {
 
         if (jsonMatch) {
             const parsed = JSON.parse(jsonMatch[0]);
-            res.json({ success: true, data: parsed });
+            res.json({ 
+                success: true, 
+                data: parsed,
+                trialInfo: req.trialInfo || null
+            });
         } else {
             // Fallback if no JSON found
-            res.json({ success: true, data: { smooth: "I like where this is going... what else?", funny: "Hey, that's interesting! Tell me more 😄", real: "That's cool. What made you think of that?", tip: "Keep it natural bro, you got this 💪" } });
+            res.json({ 
+                success: true, 
+                data: { smooth: "I like where this is going... what else?", funny: "Hey, that's interesting! Tell me more 😄", real: "That's cool. What made you think of that?", tip: "Keep it natural bro, you got this 💪" },
+                trialInfo: req.trialInfo || null
+            });
         }
     } catch (error) {
-        res.json({ success: true, data: { smooth: "I like where this is going... what else?", funny: "Hey, that's interesting! Tell me more 😄", real: "That's cool. What made you think of that?", tip: "Keep it natural bro, you got this 💪" } });
+        res.json({ 
+            success: true, 
+            data: { smooth: "I like where this is going... what else?", funny: "Hey, that's interesting! Tell me more 😄", real: "That's cool. What made you think of that?", tip: "Keep it natural bro, you got this 💪" },
+            trialInfo: req.trialInfo || null
+        });
     }
 };
 
@@ -188,13 +200,25 @@ const generateAwkwardSituationRecovery = async (req, res) => {
 
         if (jsonMatch) {
             const parsed = JSON.parse(jsonMatch[0]);
-            res.json({ success: true, data: parsed });
+            res.json({ 
+                success: true, 
+                data: parsed,
+                trialInfo: req.trialInfo || null
+            });
         } else {
             // Fallback if no JSON found
-            res.json({ success: true, data: { smooth: "I think you're just playing hard to get 😏 But I'm patient", funny: "Haha fair, I'll give you that one 😅 But I promise my jokes get better", real: "Hey no worries, just wanted to check in and see what's up" } });
+            res.json({ 
+                success: true, 
+                data: { smooth: "I think you're just playing hard to get 😏 But I'm patient", funny: "Haha fair, I'll give you that one 😅 But I promise my jokes get better", real: "Hey no worries, just wanted to check in and see what's up" },
+                trialInfo: req.trialInfo || null
+            });
         }
     } catch (error) {
-        res.json({ success: true, data: { smooth: "I think you're just playing hard to get 😏 But I'm patient", funny: "Haha fair, I'll give you that one 😅 But I promise my jokes get better", real: "Hey no worries, just wanted to check in and see what's up" } });
+        res.json({ 
+            success: true, 
+            data: { smooth: "I think you're just playing hard to get 😏 But I'm patient", funny: "Haha fair, I'll give you that one 😅 But I promise my jokes get better", real: "Hey no worries, just wanted to check in and see what's up" },
+            trialInfo: req.trialInfo || null
+        });
     }
 };
 
@@ -261,7 +285,11 @@ const analyzeScreenshot = async (req, res) => {
             }
         });
 
-        res.json({ success: true, data: result });
+        res.json({ 
+            success: true, 
+            data: result,
+            trialInfo: req.trialInfo || null
+        });
     } catch (error) {
 
         // Clean up uploaded file if analysis fails
@@ -272,7 +300,11 @@ const analyzeScreenshot = async (req, res) => {
             }
         }
 
-        res.json({ success: true, data: { smooth: "I like where this is going... what else?", funny: "Hey, that's interesting! Tell me more 😄", real: "That's cool. What made you think of that?", tip: "Keep it natural bro, you got this 💪" } });
+        res.json({ 
+            success: true, 
+            data: { smooth: "I like where this is going... what else?", funny: "Hey, that's interesting! Tell me more 😄", real: "That's cool. What made you think of that?", tip: "Keep it natural bro, you got this 💪" },
+            trialInfo: req.trialInfo || null
+        });
     }
 };
 
