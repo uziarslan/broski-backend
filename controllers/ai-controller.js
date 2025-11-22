@@ -46,22 +46,22 @@ const generateChatReplies = async (req, res) => {
 
         if (jsonMatch) {
             const parsed = JSON.parse(jsonMatch[0]);
-            res.json({ 
-                success: true, 
+            res.json({
+                success: true,
                 data: parsed,
                 trialInfo: req.trialInfo || null
             });
         } else {
             // Fallback if no JSON found
-            res.json({ 
-                success: true, 
+            res.json({
+                success: true,
                 data: { smooth: "I like where this is going... what else?", funny: "Hey, that's interesting! Tell me more 😄", real: "That's cool. What made you think of that?", tip: "Keep it natural bro, you got this 💪" },
                 trialInfo: req.trialInfo || null
             });
         }
     } catch (error) {
-        res.json({ 
-            success: true, 
+        res.json({
+            success: true,
             data: { smooth: "I like where this is going... what else?", funny: "Hey, that's interesting! Tell me more 😄", real: "That's cool. What made you think of that?", tip: "Keep it natural bro, you got this 💪" },
             trialInfo: req.trialInfo || null
         });
@@ -79,7 +79,7 @@ const generateDailyRizzDrill = async (req, res) => {
         }
 
         // Use ChatGPT Assistant to generate the daily rizz drill
-        const response = await getChatGPTAssistantResponse(assistantId, "Generate a daily rizz drill challenge");
+        const response = await getChatGPTAssistantResponse(assistantId, "Generate a challenge for the user to respond to");
 
         // Extract JSON from the response content
         const content = response.content;
@@ -87,13 +87,25 @@ const generateDailyRizzDrill = async (req, res) => {
 
         if (jsonMatch) {
             const parsed = JSON.parse(jsonMatch[0]);
-            res.json({ success: true, data: parsed });
+            res.json({
+                success: true,
+                data: parsed,
+                trialInfo: req.trialInfo || null
+            });
         } else {
             // Fallback if no JSON found
-            res.json({ success: true, data: { scenario: "You're texting your crush", challenge: "She says: 'You're so quiet 😅' - What do you reply?" } });
+            res.json({
+                success: true,
+                data: { scenario: "You're texting your crush", challenge: "She says: 'You're so quiet 😅' - What do you reply?" },
+                trialInfo: req.trialInfo || null
+            });
         }
     } catch (error) {
-        res.json({ success: true, data: { scenario: "You're texting your crush", challenge: "She says: 'You're so quiet 😅' - What do you reply?" } });
+        res.json({
+            success: true,
+            data: { scenario: "You're texting your crush", challenge: "She says: 'You're so quiet 😅' - What do you reply?" },
+            trialInfo: req.trialInfo || null
+        });
     }
 };
 
@@ -124,13 +136,25 @@ const scoreRizzDrillResponse = async (req, res) => {
 
         if (jsonMatch) {
             const parsed = JSON.parse(jsonMatch[0]);
-            res.json({ success: true, data: parsed });
+            res.json({
+                success: true,
+                data: parsed,
+                trialInfo: req.trialInfo || null
+            });
         } else {
             // Fallback if no JSON found
-            res.json({ success: true, data: { score: 6, feedback: "Not bad! Keep practicing to improve your delivery.", suggestion: "Try being more playful and confident in your tone." } });
+            res.json({
+                success: true,
+                data: { score: 6, feedback: "Not bad! Keep practicing to improve your delivery.", suggestion: "Try being more playful and confident in your tone." },
+                trialInfo: req.trialInfo || null
+            });
         }
     } catch (error) {
-        res.json({ success: true, data: { score: 6, feedback: "Not bad! Keep practicing to improve your delivery.", suggestion: "Try being more playful and confident in your tone." } });
+        res.json({
+            success: true,
+            data: { score: 6, feedback: "Not bad! Keep practicing to improve your delivery.", suggestion: "Try being more playful and confident in your tone." },
+            trialInfo: req.trialInfo || null
+        });
     }
 };
 
@@ -149,9 +173,17 @@ const generateConfidenceMessage = async (req, res) => {
 
         // Clean the response content
         const message = response.content.replace(/^["']|["']$/g, "").trim();
-        res.json({ success: true, data: { message } });
+        res.json({
+            success: true,
+            data: { message },
+            trialInfo: req.trialInfo || null
+        });
     } catch (error) {
-        res.json({ success: true, data: { message: "You've got this, bro. She's lucky to text you." } });
+        res.json({
+            success: true,
+            data: { message: "You've got this, bro. She's lucky to text you." },
+            trialInfo: req.trialInfo || null
+        });
     }
 };
 
@@ -200,22 +232,22 @@ const generateAwkwardSituationRecovery = async (req, res) => {
 
         if (jsonMatch) {
             const parsed = JSON.parse(jsonMatch[0]);
-            res.json({ 
-                success: true, 
+            res.json({
+                success: true,
                 data: parsed,
                 trialInfo: req.trialInfo || null
             });
         } else {
             // Fallback if no JSON found
-            res.json({ 
-                success: true, 
+            res.json({
+                success: true,
                 data: { smooth: "I think you're just playing hard to get 😏 But I'm patient", funny: "Haha fair, I'll give you that one 😅 But I promise my jokes get better", real: "Hey no worries, just wanted to check in and see what's up" },
                 trialInfo: req.trialInfo || null
             });
         }
     } catch (error) {
-        res.json({ 
-            success: true, 
+        res.json({
+            success: true,
             data: { smooth: "I think you're just playing hard to get 😏 But I'm patient", funny: "Haha fair, I'll give you that one 😅 But I promise my jokes get better", real: "Hey no worries, just wanted to check in and see what's up" },
             trialInfo: req.trialInfo || null
         });
@@ -285,8 +317,8 @@ const analyzeScreenshot = async (req, res) => {
             }
         });
 
-        res.json({ 
-            success: true, 
+        res.json({
+            success: true,
             data: result,
             trialInfo: req.trialInfo || null
         });
@@ -300,8 +332,8 @@ const analyzeScreenshot = async (req, res) => {
             }
         }
 
-        res.json({ 
-            success: true, 
+        res.json({
+            success: true,
             data: { smooth: "I like where this is going... what else?", funny: "Hey, that's interesting! Tell me more 😄", real: "That's cool. What made you think of that?", tip: "Keep it natural bro, you got this 💪" },
             trialInfo: req.trialInfo || null
         });

@@ -29,7 +29,7 @@ const upload = multer({
 router.post('/chat-replies', authenticateUser, requireValidSubscription, checkTrialRequestLimit, aiRateLimit, wrapAsync(generateChatReplies));
 
 // Rizz Drills - Generate daily drill (requires user authentication)
-router.get('/rizz-drill', authenticateUser, requireValidSubscription, aiRateLimit, wrapAsync(generateDailyRizzDrill));
+router.get('/rizz-drill', authenticateUser, requireValidSubscription, checkTrialRequestLimit, aiRateLimit, wrapAsync(generateDailyRizzDrill));
 
 // Rizz Drills - Score user response (requires user authentication)
 router.post('/score-drill', authenticateUser, requireValidSubscription, aiRateLimit, wrapAsync(scoreRizzDrillResponse));
