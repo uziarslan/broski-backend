@@ -46,9 +46,9 @@ const tvSchema = new mongoose.Schema({
         trim: true
     }],
     category: {
-        type: String,
-        enum: ['tutorial', 'demo', 'announcement', 'other'],
-        default: 'other'
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Category',
+        default: null
     },
     views: {
         type: Number,

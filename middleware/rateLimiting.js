@@ -34,6 +34,11 @@ const aiRateLimit = rateLimit({
 const generalRateLimit = rateLimit({
     windowMs: 15 * 60 * 1000, // 15 minutes
     max: (req) => {
+        // In development, be much more lenient
+        if (process.env.NODE_ENV !== 'production') {
+            return 1000; // 1000 requests per 15 minutes in development
+        }
+        
         if (req.user && req.user.type === 'user') {
             switch (req.user.subscriptionTier) {
                 case 'free': return 50; // 50 requests per 15 minutes for free users
@@ -54,7 +59,18 @@ const generalRateLimit = rateLimit({
     legacyHeaders: false,
     skip: (req) => {
         // Skip rate limiting for admin users
-        return req.user && req.user.type === 'admin';
+        if (req.user && req.user.type === 'admin') {
+            return true;
+        }
+        // In development, skip rate limiting for localhost
+        if (process.env.NODE_ENV !== 'production') {
+            const ip = req.ip || req.connection.remoteAddress || req.headers['x-forwarded-for']?.split(',')[0];
+            if (ip) {
+                if (ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1') return true;
+                if (ip.startsWith('192.168.') || ip.startsWith('10.') || ip.match(/^172\.(1[6-9]|2[0-9]|3[01])\./)) return true;
+            }
+        }
+        return false;
     }
 });
 

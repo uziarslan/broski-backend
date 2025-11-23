@@ -23,6 +23,7 @@ const getAllVideos = wrapAsync(async (req, res) => {
 
     const videos = await TV.find(query)
         .populate('uploadedBy', 'name email')
+        .populate('category', 'name slug icon')
         .sort({ createdAt: -1 })
         .limit(limit * 1)
         .skip((page - 1) * limit);
@@ -44,7 +45,9 @@ const getAllVideos = wrapAsync(async (req, res) => {
 const getVideo = wrapAsync(async (req, res) => {
     const { id } = req.params;
 
-    const video = await TV.findById(id).populate('uploadedBy', 'name email');
+    const video = await TV.findById(id)
+        .populate('uploadedBy', 'name email')
+        .populate('category', 'name slug icon');
     if (!video) {
         throw new ExpressError('Video not found', 404);
     }
@@ -138,11 +141,13 @@ const addVideo = wrapAsync(async (req, res) => {
             duration: 0, // Will be updated later if needed
             uploadedBy,
             tags: tags ? tags.split(',').map(tag => tag.trim()) : [],
-            category: category || 'other'
+            category: category || null // Category is now ObjectId reference
         });
 
         await video.save();
 
+        // Populate category before sending response
+        await video.populate('category', 'name slug icon');
 
         res.status(201).json({
             success: true,
@@ -283,7 +288,9 @@ const updateVideo = wrapAsync(async (req, res) => {
     const updateData = {};
     if (title) updateData.title = title;
     if (description !== undefined) updateData.description = description;
-    if (category) updateData.category = category;
+    if (category !== undefined) {
+        updateData.category = category || null; // Allow null to unset category
+    }
 
     // Handle tags processing safely
     if (tags !== undefined) {
@@ -302,7 +309,9 @@ const updateVideo = wrapAsync(async (req, res) => {
         id,
         updateData,
         { new: true, runValidators: true }
-    ).populate('uploadedBy', 'name email');
+    )
+        .populate('uploadedBy', 'name email')
+        .populate('category', 'name slug icon');
 
     res.json({
         success: true,
