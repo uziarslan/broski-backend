@@ -3,7 +3,7 @@ const multer = require('multer');
 const router = express.Router();
 const wrapAsync = require('../utils/wrapAsync');
 const { authenticateToken, requireAdmin } = require('../middleware/auth');
-const { generalRateLimit, uploadRateLimit } = require('../middleware/rateLimiting');
+const { generalRateLimit, uploadRateLimit, relaxedRateLimit } = require('../middleware/rateLimiting');
 const { thumbnailStorage } = require('../cloudinary/index.js');
 const {
     getAllVideos,
@@ -37,11 +37,11 @@ const uploadThumbnail = multer({
 
 // ============ VIDEO ROUTES ============
 
-// Get all videos (public, rate limited)
-router.get('/', generalRateLimit, wrapAsync(getAllVideos));
+// Get all videos (public, relaxed rate limit)
+router.get('/', relaxedRateLimit, wrapAsync(getAllVideos));
 
-// Get single video (public, rate limited)
-router.get('/:id', generalRateLimit, wrapAsync(getVideo));
+// Get single video (public, relaxed rate limit)
+router.get('/:id', relaxedRateLimit, wrapAsync(getVideo));
 
 // Add video URL (admin only, rate limited)
 router.post('/add', authenticateToken, requireAdmin, uploadRateLimit, uploadThumbnail.single('thumbnail'), wrapAsync(addVideo));

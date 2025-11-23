@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const wrapAsync = require('../utils/wrapAsync');
 const { authenticateToken, requireAdmin } = require('../middleware/auth');
-const { generalRateLimit } = require('../middleware/rateLimiting');
+const { generalRateLimit, relaxedRateLimit } = require('../middleware/rateLimiting');
 const {
     getAllCategories,
     getCategory,
@@ -14,10 +14,10 @@ const {
 // ============ CATEGORY ROUTES ============
 
 // Get all categories (public for mobile app, admin for admin panel)
-router.get('/', generalRateLimit, wrapAsync(getAllCategories));
+router.get('/', relaxedRateLimit, wrapAsync(getAllCategories));
 
 // Get single category (public)
-router.get('/:id', generalRateLimit, wrapAsync(getCategory));
+router.get('/:id', relaxedRateLimit, wrapAsync(getCategory));
 
 // Create category (admin only)
 router.post('/', authenticateToken, requireAdmin, generalRateLimit, wrapAsync(createCategory));

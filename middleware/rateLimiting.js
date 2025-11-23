@@ -74,6 +74,29 @@ const generalRateLimit = rateLimit({
     }
 });
 
+// Relaxed limiter for public read-only endpoints (e.g., TV videos, categories)
+const relaxedRateLimit = rateLimit({
+    windowMs: 15 * 60 * 1000, // 15 minutes
+    max: process.env.NODE_ENV === 'production' ? 500 : 5000,
+    message: {
+        success: false,
+        error: 'Too many requests. Please try again later.',
+        retryAfter: '15 minutes'
+    },
+    standardHeaders: true,
+    legacyHeaders: false,
+    skip: (req) => {
+        if (process.env.NODE_ENV !== 'production') {
+            const ip = req.ip || req.connection.remoteAddress || req.headers['x-forwarded-for']?.split(',')[0];
+            if (ip) {
+                if (ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1') return true;
+                if (ip.startsWith('192.168.') || ip.startsWith('10.') || ip.match(/^172\.(1[6-9]|2[0-9]|3[01])\./)) return true;
+            }
+        }
+        return false;
+    }
+});
+
 // Rate limiting for authentication endpoints
 const authRateLimit = rateLimit({
     windowMs: 15 * 60 * 1000, // 15 minutes
@@ -143,6 +166,7 @@ const uploadRateLimit = rateLimit({
 module.exports = {
     aiRateLimit,
     generalRateLimit,
+    relaxedRateLimit,
     authRateLimit,
     registrationRateLimit,
     uploadRateLimit
