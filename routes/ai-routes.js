@@ -3,7 +3,7 @@ const router = express.Router();
 const wrapAsync = require('../utils/wrapAsync');
 const multer = require('multer');
 const { screenshotStorage } = require('../cloudinary');
-const { authenticateUser, requireValidSubscription } = require('../middleware/auth');
+const { authenticateUser, requireValidSubscription, requireActiveUser } = require('../middleware/auth');
 const { aiRateLimit } = require('../middleware/rateLimiting');
 const { checkTrialRequestLimit } = require('../middleware/trialLimiting');
 const {
@@ -26,21 +26,21 @@ const upload = multer({
 // ============ AI SERVICE ROUTES ============
 
 // Chat Coach - Generate reply suggestions (requires user authentication)
-router.post('/chat-replies', authenticateUser, requireValidSubscription, checkTrialRequestLimit, aiRateLimit, wrapAsync(generateChatReplies));
+router.post('/chat-replies', authenticateUser, requireActiveUser, requireValidSubscription, checkTrialRequestLimit, aiRateLimit, wrapAsync(generateChatReplies));
 
 // Rizz Drills - Generate daily drill (requires user authentication)
-router.get('/rizz-drill', authenticateUser, requireValidSubscription, checkTrialRequestLimit, aiRateLimit, wrapAsync(generateDailyRizzDrill));
+router.get('/rizz-drill', authenticateUser, requireActiveUser, requireValidSubscription, checkTrialRequestLimit, aiRateLimit, wrapAsync(generateDailyRizzDrill));
 
 // Rizz Drills - Score user response (requires user authentication)
-router.post('/score-drill', authenticateUser, requireValidSubscription, aiRateLimit, wrapAsync(scoreRizzDrillResponse));
+router.post('/score-drill', authenticateUser, requireActiveUser, requireValidSubscription, aiRateLimit, wrapAsync(scoreRizzDrillResponse));
 
 // Confidence - Generate confidence message (requires user authentication)
-router.get('/confidence-message', authenticateUser, requireValidSubscription, aiRateLimit, wrapAsync(generateConfidenceMessage));
+router.get('/confidence-message', authenticateUser, requireActiveUser, requireValidSubscription, aiRateLimit, wrapAsync(generateConfidenceMessage));
 
 // Awkward Situations - Generate recovery messages (requires user authentication)
-router.post('/awkward-situation-recovery', authenticateUser, requireValidSubscription, checkTrialRequestLimit, aiRateLimit, wrapAsync(generateAwkwardSituationRecovery));
+router.post('/awkward-situation-recovery', authenticateUser, requireActiveUser, requireValidSubscription, checkTrialRequestLimit, aiRateLimit, wrapAsync(generateAwkwardSituationRecovery));
 
 // Screenshot Analysis (requires user authentication)
-router.post('/analyze-screenshot', authenticateUser, requireValidSubscription, checkTrialRequestLimit, aiRateLimit, upload.single('image'), wrapAsync(analyzeScreenshot));
+router.post('/analyze-screenshot', authenticateUser, requireActiveUser, requireValidSubscription, checkTrialRequestLimit, aiRateLimit, upload.single('image'), wrapAsync(analyzeScreenshot));
 
 module.exports = router;

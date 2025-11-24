@@ -120,7 +120,13 @@ app.use((err, req, res, next) => {
     }
     const { status = 500 } = err;
     if (!err.message) err.message = "Oh No, Something Went Wrong!";
-    res.status(status).json({ message: err.message });
+    const responsePayload = { message: err.message };
+    if (err.code) {
+        responsePayload.error = err.code;
+    } else if (err.error) {
+        responsePayload.error = err.error;
+    }
+    res.status(status).json(responsePayload);
 });
 
 // Listen for the port Number

@@ -76,6 +76,7 @@ const authenticateUser = async (req, res, next) => {
             email: user.email,
             name: user.name,
             subscriptionTier: user.subscriptionTier,
+            isActive: user.isActive !== false,
             type: 'user'
         };
 
@@ -124,6 +125,7 @@ const authenticateAny = async (req, res, next) => {
                 email: user.email,
                 name: user.name,
                 subscriptionTier: user.subscriptionTier,
+                isActive: user.isActive !== false,
                 type: 'user'
             };
             return next();
@@ -154,6 +156,20 @@ const requireValidSubscription = (req, res, next) => {
     next();
 };
 
+const requireActiveUser = (req, res, next) => {
+    if (!req.user || req.user.type !== 'user') {
+        throw new ExpressError('User authentication required', 401);
+    }
+
+    if (req.user.isActive === false) {
+        const error = new ExpressError('Your account is inactive. Please contact support to reactivate.', 403);
+        error.code = 'ACCOUNT_INACTIVE';
+        throw error;
+    }
+
+    next();
+};
+
 // Middleware to check if user has premium subscription
 const requirePremiumSubscription = (req, res, next) => {
     if (!req.user || req.user.type !== 'user') {
@@ -174,5 +190,6 @@ module.exports = {
     authenticateUser,
     authenticateAny,
     requireValidSubscription,
+    requireActiveUser,
     requirePremiumSubscription
 };

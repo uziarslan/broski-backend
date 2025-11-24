@@ -13,6 +13,15 @@ const {
 
 const DAY_IN_MS = 24 * 60 * 60 * 1000;
 
+const parseDateSafely = (value) => {
+    if (!value) return null;
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) {
+        return null;
+    }
+    return parsed;
+};
+
 const pickNextChallengeId = (currentId = -1) => {
     if (DAILY_CHALLENGE_COUNT === 0) return 0;
     return (currentId + 1) % DAILY_CHALLENGE_COUNT;
@@ -113,6 +122,7 @@ const registerUser = async (req, res) => {
         userGoal: userGoal || '',
         userChallenge: userChallenge || '',
         userPersonality: userPersonality || '',
+        hasCompletedOnboarding: false,
         role: 'user',
         subscriptionTier: 'free',
         isActive: true,
@@ -155,6 +165,7 @@ const registerUser = async (req, res) => {
             id: user._id,
             name: user.name,
             role: user.role,
+            hasCompletedOnboarding: user.hasCompletedOnboarding,
             subscriptionTier: user.subscriptionTier,
             userGoal: user.userGoal,
             userChallenge: user.userChallenge,
@@ -415,6 +426,7 @@ const getUserProfile = async (req, res) => {
             id: user._id,
             name: user.name,
             role: user.role,
+            hasCompletedOnboarding: user.hasCompletedOnboarding,
             // Subscription
             subscriptionTier: user.subscriptionTier,
             subscriptionPlan: user.subscriptionPlan,
@@ -510,6 +522,7 @@ const updateUserProfile = async (req, res) => {
             data: {
                 id: user._id,
                 name: user.name,
+                hasCompletedOnboarding: user.hasCompletedOnboarding,
                 subscriptionTier: user.subscriptionTier,
                 subscriptionPlan: user.subscriptionPlan,
                 isSubscribed: user.isSubscribed,
@@ -627,18 +640,18 @@ const syncSubscriptionFromClient = async (req, res) => {
     // Check if user is in trial period
     // Also check dates to infer trial status if periodType is not provided
     let isInTrial = periodType === 'trial' || periodType === 'TRIAL';
-    
+
     // Fallback: If periodType is not 'trial' but subscription is active and dates suggest trial
     // This handles cases where RevenueCat returns "NORMAL" even during trial period
     if (!isInTrial && normalizedStatus === 'active' && originalPurchaseDate && expirationDate) {
         const purchaseDate = new Date(originalPurchaseDate);
         const expDate = new Date(expirationDate);
         const now = new Date();
-        
+
         const daysSinceOriginal = (now.getTime() - purchaseDate.getTime()) / (1000 * 60 * 60 * 24);
         const daysUntilExpiration = (expDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24);
         const totalDays = (expDate.getTime() - purchaseDate.getTime()) / (1000 * 60 * 60 * 24);
-        
+
         // If subscription is within first 3-4 days of original purchase and expires soon, it's likely a trial
         // Also check if total duration is around 3 days (trial period)
         if (daysSinceOriginal <= 4 && daysUntilExpiration >= 0 && daysUntilExpiration <= 4 && totalDays >= 2.5 && totalDays <= 4) {
@@ -672,6 +685,17 @@ const syncSubscriptionFromClient = async (req, res) => {
         isInTrialPeriod: isInTrial,
         lastSyncTime: new Date()
     };
+
+    const hasSubscriptionHistory =
+        normalizedStatus !== 'none' ||
+        Boolean(originalPurchaseDate) ||
+        Boolean(expirationDate) ||
+        Boolean(productId) ||
+        Boolean(entitlementId);
+
+    if (hasSubscriptionHistory) {
+        updates.hasCompletedOnboarding = true;
+    }
 
     const updateDoc = { $set: updates };
 
@@ -748,7 +772,8 @@ const completeDailyChallenge = async (req, res) => {
     }
 
     // Save the previous completion date BEFORE ensureDailyChallengeForUser potentially resets it
-    const previousCompletionDate = user.challengeCompletedAt ? new Date(user.challengeCompletedAt) : null;
+    const previousCompletionDate =
+        parseDateSafely(user.challengeCompletedAt) || parseDateSafely(user.lastChallengeDate);
     const previousStreak = user.challengeStreak || 0;
 
     await ensureDailyChallengeForUser(user);

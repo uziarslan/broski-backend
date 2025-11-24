@@ -6,6 +6,15 @@ const normalizeText = (value = "") => (typeof value === "string" ? value.trim() 
 const normalizeMetadata = (metadata) =>
     metadata && typeof metadata === "object" ? metadata : {};
 
+const sanitizeQueryValue = (value, allowedValues = []) => {
+    const normalized = normalizeText(value);
+    if (!normalized) return undefined;
+    if (allowedValues.length === 0 || allowedValues.includes(normalized)) {
+        return normalized;
+    }
+    return undefined;
+};
+
 const submitSupportRequest = async (req, res) => {
     const category = normalizeText(req.body?.category);
     const message = normalizeText(req.body?.message);
@@ -30,6 +39,23 @@ const submitSupportRequest = async (req, res) => {
         success: true,
         message: "Support request received",
         data: entry,
+    });
+};
+
+const listSupportRequests = async (req, res) => {
+    const status = sanitizeQueryValue(req.query?.status, ['open', 'in_progress', 'resolved']);
+    const filter = {};
+    if (status) {
+        filter.status = status;
+    }
+
+    const entries = await SupportRequest.find(filter)
+        .sort({ createdAt: -1 })
+        .lean();
+
+    res.json({
+        success: true,
+        data: entries,
     });
 };
 
@@ -67,8 +93,33 @@ const submitFeedback = async (req, res) => {
     });
 };
 
+const listFeedbackEntries = async (req, res) => {
+    const type = sanitizeQueryValue(req.query?.type);
+    const minRatingRaw = Number(req.query?.minRating);
+    const minRating = Number.isFinite(minRatingRaw) ? Math.min(Math.max(Math.round(minRatingRaw), 1), 5) : undefined;
+
+    const filter = {};
+    if (type) {
+        filter.type = type;
+    }
+    if (minRating) {
+        filter.rating = { $gte: minRating };
+    }
+
+    const entries = await Feedback.find(filter)
+        .sort({ createdAt: -1 })
+        .lean();
+
+    res.json({
+        success: true,
+        data: entries,
+    });
+};
+
 module.exports = {
     submitSupportRequest,
     submitFeedback,
+    listSupportRequests,
+    listFeedbackEntries,
 };
 

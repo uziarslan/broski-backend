@@ -81,6 +81,10 @@ const userSchema = new mongoose.Schema({
         default: []
     },
     // Onboarding data
+    hasCompletedOnboarding: {
+        type: Boolean,
+        default: false
+    },
     userGoal: {
         type: String,
         required: true,
