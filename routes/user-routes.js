@@ -19,9 +19,11 @@ const {
     getAllUsers,
     toggleUserStatus,
     deleteUser,
+    deleteOwnAccount,
     getSavedChatReplies,
     addSavedChatReply,
-    deleteSavedChatReply
+    deleteSavedChatReply,
+    findUserBySubscriptionMetadata
 } = require('../controllers/user-controller');
 
 // ============ USER MANAGEMENT ROUTES ============
@@ -40,6 +42,9 @@ router.get('/profile/:userId', authenticateUser, generalRateLimit, wrapAsync(get
 // Update user profile (requires authentication)
 router.put('/profile/:userId', authenticateUser, generalRateLimit, wrapAsync(updateUserProfile));
 
+// Delete own account (requires authentication)
+router.delete('/profile/me', authenticateUser, generalRateLimit, wrapAsync(deleteOwnAccount));
+
 // Check usage limits (requires authentication)
 router.post('/usage/check', authenticateUser, generalRateLimit, wrapAsync(checkUsageLimit));
 
@@ -56,6 +61,9 @@ router.delete('/chat-replies/:replyId', authenticateUser, generalRateLimit, wrap
 
 // Complete daily challenge (requires authentication)
 router.post('/challenge/complete', authenticateUser, generalRateLimit, wrapAsync(completeDailyChallenge));
+
+// Subscription lookup for StoreKit restore (no auth required)
+router.post('/subscription/lookup', generalRateLimit, wrapAsync(findUserBySubscriptionMetadata));
 
 // Complete daily drill (requires authentication)
 router.post('/drill/complete', authenticateUser, requireValidSubscription, generalRateLimit, wrapAsync(completeDailyDrill));

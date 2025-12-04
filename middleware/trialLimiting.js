@@ -27,14 +27,16 @@ const checkTrialRequestLimit = async (req, res, next) => {
             await user.save();
         }
 
+        const DAILY_LIMIT = 40;
+
         // Check if user has exceeded limit
-        if (user.trialRequestCount >= 3) {
+        if (user.trialRequestCount >= DAILY_LIMIT) {
             return res.status(403).json({
                 success: false,
                 error: 'Trial request limit exceeded',
-                message: 'You have reached your daily limit of 3 requests. Upgrade to continue using Broski unlimited.',
+                message: `You have reached your daily limit of ${DAILY_LIMIT} requests. Upgrade to continue using Broski unlimited.`,
                 trialRequestCount: user.trialRequestCount,
-                limit: 3
+                limit: DAILY_LIMIT
             });
         }
 
@@ -45,8 +47,8 @@ const checkTrialRequestLimit = async (req, res, next) => {
         // Add trial info to request for controllers to include in response
         req.trialInfo = {
             count: user.trialRequestCount,
-            limit: 3,
-            remaining: 3 - user.trialRequestCount
+            limit: DAILY_LIMIT,
+            remaining: Math.max(DAILY_LIMIT - user.trialRequestCount, 0)
         };
 
         next();

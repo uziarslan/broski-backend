@@ -287,7 +287,7 @@ const appendRevenueCatAlias = async (user, alias) => {
 };
 
 const generateUserTokenFromRevenueCat = async (req, res) => {
-    const { revenueCatUserId, fallback } = req.body;
+    const { revenueCatUserId } = req.body;
 
     if (!revenueCatUserId) {
         throw new ExpressError('RevenueCat user ID is required', 400);
@@ -312,13 +312,6 @@ const generateUserTokenFromRevenueCat = async (req, res) => {
             const viaRevenueCatApi = await fetchUserIdFromRevenueCat(revenueCatUserId);
             if (viaRevenueCatApi) {
                 return viaRevenueCatApi;
-            }
-
-            if (fallback) {
-                const fallbackUser = await findUserByFallback(fallback);
-                if (fallbackUser) {
-                    return fallbackUser;
-                }
             }
 
             return null;
@@ -348,39 +341,6 @@ const generateUserTokenFromRevenueCat = async (req, res) => {
         }
         throw new ExpressError('Failed to generate token', 500);
     }
-};
-
-const findUserByFallback = async (fallback) => {
-    const queries = [];
-
-    if (fallback.originalAppUserId) {
-        queries.push({ subscriptionOriginalAppUserId: fallback.originalAppUserId });
-        queries.push({ revenueCatAliases: { $in: [fallback.originalAppUserId] } });
-    }
-
-    if (fallback.productId) {
-        queries.push({ subscriptionProductId: fallback.productId });
-    }
-
-    if (fallback.originalPurchaseDate) {
-        const date = new Date(fallback.originalPurchaseDate);
-        if (!Number.isNaN(date.getTime())) {
-            const start = new Date(date.getTime() - 5 * 60 * 1000);
-            const end = new Date(date.getTime() + 5 * 60 * 1000);
-            queries.push({
-                subscriptionOriginalPurchaseDate: {
-                    $gte: start,
-                    $lte: end
-                }
-            });
-        }
-    }
-
-    if (queries.length === 0) {
-        return null;
-    }
-
-    return User.findOne({ $or: queries });
 };
 
 const registerRevenueCatAlias = async (req, res) => {
@@ -757,6 +717,57 @@ const syncSubscriptionFromClient = async (req, res) => {
     });
 };
 
+// Find user by subscription metadata (productId + originalPurchaseDate)
+const findUserBySubscriptionMetadata = async (req, res) => {
+    const { productId, originalPurchaseDate } = req.body || {};
+
+    if (!productId || !originalPurchaseDate) {
+        throw new ExpressError('productId and originalPurchaseDate are required', 400);
+    }
+
+    const purchaseDate = new Date(originalPurchaseDate);
+
+    if (Number.isNaN(purchaseDate.getTime())) {
+        throw new ExpressError('Invalid originalPurchaseDate', 400);
+    }
+
+    const windowStart = new Date(purchaseDate.getTime() - 5 * 60 * 1000);
+    const windowEnd = new Date(purchaseDate.getTime() + 5 * 60 * 1000);
+
+    if (process.env.NODE_ENV !== 'production') {
+        console.log('[Subscription Lookup]', {
+            productId,
+            originalPurchaseDate,
+            windowStart,
+            windowEnd
+        });
+    }
+
+    const user = await User.findOne({
+        subscriptionProductId: productId,
+        subscriptionOriginalPurchaseDate: { $gte: windowStart, $lte: windowEnd }
+    });
+
+    if (!user) {
+        if (process.env.NODE_ENV !== 'production') {
+            console.log('[Subscription Lookup] No user found for', {
+                productId,
+                originalPurchaseDate
+            });
+        }
+        throw new ExpressError('User not found', 404);
+    }
+
+    if (process.env.NODE_ENV !== 'production') {
+        console.log('[Subscription Lookup] Found user', user._id.toString());
+    }
+
+    res.json({
+        success: true,
+        userId: user._id.toString()
+    });
+};
+
 // Complete daily challenge
 const completeDailyChallenge = async (req, res) => {
     const { userId } = req.body;
@@ -1029,6 +1040,33 @@ const deleteUser = async (req, res) => {
     }
 };
 
+// Delete own account (authenticated user)
+const deleteOwnAccount = async (req, res) => {
+    const userId = req.user?.userId;
+
+    if (!userId) {
+        throw new ExpressError('User authentication required', 401);
+    }
+
+    try {
+        const user = await User.findByIdAndDelete(userId);
+
+        if (!user) {
+            throw new ExpressError('User not found', 404);
+        }
+
+        res.json({
+            success: true,
+            message: 'User deleted successfully'
+        });
+    } catch (error) {
+        if (error.status) {
+            throw error;
+        }
+        throw new ExpressError('Failed to delete user', 500);
+    }
+};
+
 module.exports = {
     registerUser,
     generateUserToken,
@@ -1047,5 +1085,7 @@ module.exports = {
     setDailyConfidence,
     getAllUsers,
     toggleUserStatus,
-    deleteUser
+    deleteUser,
+    deleteOwnAccount,
+    findUserBySubscriptionMetadata
 };

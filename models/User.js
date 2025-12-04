@@ -128,7 +128,7 @@ const userSchema = new mongoose.Schema({
     },
     dailyWingItLimit: {
         type: Number,
-        default: 3
+        default: 40
     },
     lastWingItResetDate: {
         type: String,

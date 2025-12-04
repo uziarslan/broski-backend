@@ -76,6 +76,8 @@ const authenticateUser = async (req, res, next) => {
             email: user.email,
             name: user.name,
             subscriptionTier: user.subscriptionTier,
+            subscriptionStatus: user.subscriptionStatus,
+            isSubscribed: user.isSubscribed,
             isActive: user.isActive !== false,
             type: 'user'
         };
@@ -125,6 +127,8 @@ const authenticateAny = async (req, res, next) => {
                 email: user.email,
                 name: user.name,
                 subscriptionTier: user.subscriptionTier,
+                subscriptionStatus: user.subscriptionStatus,
+                isSubscribed: user.isSubscribed,
                 isActive: user.isActive !== false,
                 type: 'user'
             };
@@ -184,6 +188,20 @@ const requirePremiumSubscription = (req, res, next) => {
     next();
 };
 
+const requireActiveSubscription = (req, res, next) => {
+    if (!req.user || req.user.type !== 'user') {
+        throw new ExpressError('User authentication required', 401);
+    }
+
+    if (req.user.subscriptionStatus !== 'active') {
+        const error = new ExpressError('Your subscription is inactive. Please restore or renew to continue.', 403);
+        error.code = 'SUBSCRIPTION_INACTIVE';
+        throw error;
+    }
+
+    next();
+};
+
 module.exports = {
     authenticateToken,
     requireAdmin,
@@ -191,5 +209,6 @@ module.exports = {
     authenticateAny,
     requireValidSubscription,
     requireActiveUser,
-    requirePremiumSubscription
+    requirePremiumSubscription,
+    requireActiveSubscription
 };
