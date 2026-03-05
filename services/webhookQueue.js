@@ -7,13 +7,23 @@ const config = require('../config');
 
 const QUEUE_NAME = 'revenuecat_webhooks';
 const MAX_QUEUE_DEPTH = 50000;
-const REDIS_URL = process.env.REDIS_URL || 'redis://localhost:6379';
+const REDIS_URL = process.env.REDIS_URL || process.env.REDIS_TLS_URL || 'redis://localhost:6379';
 
 let queue = null;
+
+function getRedisOpts() {
+    const opts = { maxRetriesPerRequest: null };
+    // Heroku Redis / Key-Value Store requires TLS; Bull doesn't auto-enable it for rediss://
+    if (REDIS_URL.startsWith('rediss://')) {
+        opts.tls = { rejectUnauthorized: true };
+    }
+    return opts;
+}
 
 function getQueue() {
     if (!queue) {
         queue = new Bull(QUEUE_NAME, REDIS_URL, {
+            redis: getRedisOpts(),
             defaultJobOptions: {
                 removeOnComplete: 100,
                 removeOnFail: 500,
