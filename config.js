@@ -48,6 +48,19 @@ module.exports = {
     JWT_SECRET: process.env.JWT_SECRET || 'your-secret-key',
 
     // RevenueCat Configuration
-    REVENUECAT_API_KEY: process.env.REVENUECAT_API_KEY, // Server-side API key from RevenueCat Dashboard
-    REVENUECAT_WEBHOOK_SECRET: process.env.REVENUECAT_WEBHOOK_SECRET // Optional: for webhook signature verification
+    REVENUECAT_API_KEY: process.env.REVENUECAT_API_KEY,
+    REVENUECAT_WEBHOOK_SECRET: process.env.REVENUECAT_WEBHOOK_SECRET,
+
+    // Queue (Redis)
+    REDIS_URL: process.env.REDIS_URL || 'redis://localhost:6379',
+    USE_WEBHOOK_QUEUE: process.env.USE_WEBHOOK_QUEUE === 'true',
+
+    // Cron
+    CRON_SECRET: process.env.CRON_SECRET,
+
+    // Push / FCM
+    REMINDER_INTERVAL_HOURS: parseFloat(process.env.REMINDER_INTERVAL_HOURS || '24', 10),
+    FCM_PROJECT_ID: process.env.FCM_PROJECT_ID,
+    FCM_CLIENT_EMAIL: process.env.FCM_CLIENT_EMAIL,
+    FCM_PRIVATE_KEY: process.env.FCM_PRIVATE_KEY ? process.env.FCM_PRIVATE_KEY.replace(/\\n/g, '\n') : null,
 };

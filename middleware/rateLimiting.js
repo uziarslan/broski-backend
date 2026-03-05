@@ -1,4 +1,4 @@
-const rateLimit = require('express-rate-limit');
+const { rateLimit, ipKeyGenerator } = require('express-rate-limit');
 const ExpressError = require('../utils/ExpressError');
 
 // Rate limiting for AI endpoints (more restrictive)
@@ -136,6 +136,42 @@ const registrationRateLimit = rateLimit({
     }
 });
 
+// Rate limiting for push token registration (Spec 4.6)
+const pushTokenRateLimit = rateLimit({
+    windowMs: 60 * 1000,
+    max: 10,
+    message: {
+        success: false,
+        error: 'Too many token registration attempts. Please try again in a minute.',
+    },
+    standardHeaders: true,
+    legacyHeaders: false,
+    keyGenerator: (req) => {
+        const uid = req.user?.userId?.toString?.();
+        if (uid) return `push-token:${uid}`;
+        return req.ip ? `push-token:${ipKeyGenerator(req.ip)}` : 'push-token:anon';
+    },
+    skip: (req) => !req.user?.userId,
+});
+
+// Rate limiting for push token deletion
+const pushTokenDeleteRateLimit = rateLimit({
+    windowMs: 60 * 1000,
+    max: 20,
+    message: {
+        success: false,
+        error: 'Too many delete attempts. Please try again.',
+    },
+    standardHeaders: true,
+    legacyHeaders: false,
+    keyGenerator: (req) => {
+        const uid = req.user?.userId?.toString?.();
+        if (uid) return `push-delete:${uid}`;
+        return req.ip ? `push-delete:${ipKeyGenerator(req.ip)}` : 'push-delete:anon';
+    },
+    skip: (req) => !req.user?.userId,
+});
+
 // Rate limiting for file uploads
 const uploadRateLimit = rateLimit({
     windowMs: 60 * 60 * 1000, // 1 hour
@@ -169,5 +205,7 @@ module.exports = {
     relaxedRateLimit,
     authRateLimit,
     registrationRateLimit,
+    pushTokenRateLimit,
+    pushTokenDeleteRateLimit,
     uploadRateLimit
 };

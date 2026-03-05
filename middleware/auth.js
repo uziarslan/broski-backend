@@ -3,6 +3,7 @@ const Admin = require('../models/Admin');
 const User = require('../models/User');
 const ExpressError = require('../utils/ExpressError');
 const config = require('../config');
+const { getEffectiveSubscription } = require('../utils/subscriptionUtils');
 
 // Middleware to verify JWT token and authenticate admin
 const authenticateToken = async (req, res, next) => {
@@ -65,19 +66,19 @@ const authenticateUser = async (req, res, next) => {
         const decoded = jwt.verify(token, config.JWT_SECRET);
 
         // Find the user in the database
-        const user = await User.findById(decoded.userId).select('-password');
+        const user = await User.findById(decoded.userId).select('-password').lean();
         if (!user) {
             throw new ExpressError('Invalid token - user not found', 401);
         }
 
-        // Add user info to request object
+        const effective = getEffectiveSubscription(user);
         req.user = {
             userId: user._id,
             email: user.email,
             name: user.name,
-            subscriptionTier: user.subscriptionTier,
-            subscriptionStatus: user.subscriptionStatus,
-            isSubscribed: user.isSubscribed,
+            subscriptionTier: effective.subscriptionTier,
+            subscriptionStatus: effective.subscriptionStatus,
+            isSubscribed: effective.isSubscribed,
             isActive: user.isActive !== false,
             type: 'user'
         };
@@ -120,15 +121,16 @@ const authenticateAny = async (req, res, next) => {
         }
 
         // Try to find as user
-        let user = await User.findById(decoded.userId).select('-password');
+        let user = await User.findById(decoded.userId).select('-password').lean();
         if (user) {
+            const effective = getEffectiveSubscription(user);
             req.user = {
                 userId: user._id,
                 email: user.email,
                 name: user.name,
-                subscriptionTier: user.subscriptionTier,
-                subscriptionStatus: user.subscriptionStatus,
-                isSubscribed: user.isSubscribed,
+                subscriptionTier: effective.subscriptionTier,
+                subscriptionStatus: effective.subscriptionStatus,
+                isSubscribed: effective.isSubscribed,
                 isActive: user.isActive !== false,
                 type: 'user'
             };
@@ -152,7 +154,7 @@ const requireValidSubscription = (req, res, next) => {
         throw new ExpressError('User authentication required', 401);
     }
 
-    const validTiers = ['free', 'pro', 'gold'];
+    const validTiers = ['free', 'pro', 'elite'];
     if (!validTiers.includes(req.user.subscriptionTier)) {
         throw new ExpressError('Valid subscription required', 403);
     }
@@ -180,7 +182,7 @@ const requirePremiumSubscription = (req, res, next) => {
         throw new ExpressError('User authentication required', 401);
     }
 
-    const premiumTiers = ['pro', 'gold'];
+    const premiumTiers = ['pro', 'elite'];
     if (!premiumTiers.includes(req.user.subscriptionTier)) {
         throw new ExpressError('Premium subscription required', 403);
     }

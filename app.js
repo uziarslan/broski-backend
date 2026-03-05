@@ -35,8 +35,7 @@ const allowedOrigins = [config.ADMIN_PANEL_URL, config.DOMAIN_FRONTEND, 'http://
 
 const corsOptions = {
     origin: function (origin, callback) {
-        // Mobile apps (iOS/Android from Play Store/Apple Store) don't send Origin header
-        // This automatically allows all mobile app requests
+        // Mobile apps (iOS/Android) typically don't send Origin header
         if (!origin) return callback(null, true);
 
         // Allow if origin is in the allowed list (admin panel, web frontend)
@@ -44,11 +43,16 @@ const corsOptions = {
             return callback(null, true);
         }
 
+        // Allow ngrok and similar tunneling URLs (for development)
+        if (origin && (origin.includes('ngrok') || origin.includes('localhost') || origin.includes('127.0.0.1'))) {
+            return callback(null, true);
+        }
+
         return callback(new Error('Not allowed by CORS'));
     },
     credentials: true,
     methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"],
+    allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With", "ngrok-skip-browser-warning"],
 };
 
 // Trust proxy to get correct client IP (important for rate limiting)
@@ -87,6 +91,8 @@ const authRoutes = require('./routes/auth-routes');
 const tvRoutes = require('./routes/tv-routes');
 const categoryRoutes = require('./routes/category-routes');
 const supportFeedbackRoutes = require('./routes/support-feedback-routes');
+const webhookRoutes = require('./routes/webhook-routes');
+const cronRoutes = require('./routes/cron-routes');
 
 // Use routes
 app.use('/api/ai', aiRoutes);
@@ -96,6 +102,8 @@ app.use('/api/auth', authRoutes);
 app.use('/api/tv', tvRoutes);
 app.use('/api/categories', categoryRoutes);
 app.use('/api', supportFeedbackRoutes);
+app.use('/api/webhooks', webhookRoutes);
+app.use('/api/cron', cronRoutes);
 
 // CORS is handled by the cors middleware above
 
@@ -104,6 +112,14 @@ mongoose
     .connect(mongoURi, { useNewUrlParser: true, useUnifiedTopology: true })
     .then(() => {
         console.log("Mongoose is connected");
+        if (config.USE_WEBHOOK_QUEUE) {
+            try {
+                const { startWorker } = require('./workers/webhookWorker');
+                startWorker(5);
+            } catch (e) {
+                console.warn("[webhookWorker] Failed to start:", e?.message);
+            }
+        }
     })
     .catch((e) => {
         console.log(e);

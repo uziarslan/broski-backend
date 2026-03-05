@@ -12,6 +12,10 @@ const {
 } = require('../utils/dailyChallenges');
 
 const DAY_IN_MS = 24 * 60 * 60 * 1000;
+const SUB_LOOKUP_WINDOW_MINUTES = parseInt(process.env.SUBSCRIPTION_LOOKUP_WINDOW_MINUTES || '5', 10);
+const SUB_LOOKUP_WINDOW_MS = SUB_LOOKUP_WINDOW_MINUTES * 60 * 1000;
+const { getEffectiveSubscription } = require('../utils/subscriptionUtils');
+const { processPendingForRcIds } = require('../services/pendingWebhookService');
 
 const parseDateSafely = (value) => {
     if (!value) return null;
@@ -102,7 +106,72 @@ const serializeSavedReply = (reply) => ({
 
 // ============ USER MANAGEMENT ============
 
-// User registration
+// Anonymous registration (no onboarding - used when user taps Get Started Free)
+const registerAnonymous = async (req, res) => {
+    try {
+        const user = new User({
+            name: 'Bro',
+            userGoal: 'General',
+            userChallenge: 'General',
+            userPersonality: '',
+            hasCompletedOnboarding: true,
+            role: 'user',
+            subscriptionTier: 'free',
+            isActive: true,
+            dailyAnalysisCount: 0,
+            rizzLevel: 1,
+            totalScore: 0,
+            dailyWingItCount: 0,
+            dailyWingItLimit: 3,
+            lastWingItResetDate: new Date().toDateString(),
+            totalXP: 0,
+            challengeLevel: 1,
+            challengeLevelName: 'Rookie',
+            dailyChallengeCompleted: false,
+            lastChallengeDate: '',
+            currentChallengeId: 0,
+            challengeAssignedAt: new Date(),
+            challengeCompletedAt: null,
+            challengeStreak: 0,
+            rizzLevelName: 'Rookie',
+            dailyDrillCompleted: false,
+            savedChatReplies: [],
+            lastSyncTime: new Date()
+        });
+
+        await user.save();
+
+        const token = jwt.sign(
+            { userId: user._id },
+            config.JWT_SECRET,
+            { expiresIn: '30d' }
+        );
+
+        res.status(201).json({
+            success: true,
+            message: 'User registered successfully',
+            token,
+            user: {
+                id: user._id.toString(),
+                name: user.name,
+                role: user.role,
+                hasCompletedOnboarding: user.hasCompletedOnboarding,
+                subscriptionTier: user.subscriptionTier,
+                userGoal: user.userGoal || '',
+                userChallenge: user.userChallenge || '',
+                userPersonality: user.userPersonality || ''
+            }
+        });
+    } catch (err) {
+        console.error('[registerAnonymous] Error:', err.message || err);
+        if (err.name === 'ValidationError') {
+            console.error('[registerAnonymous] Validation details:', JSON.stringify(err.errors, null, 2));
+        }
+        throw err;
+    }
+};
+
+// User registration (legacy - with onboarding)
 const registerUser = async (req, res) => {
     const { name, userGoal, userChallenge, userPersonality } = req.body;
 
@@ -215,62 +284,122 @@ const generateUserToken = async (req, res) => {
 
 const fetchUserIdFromRevenueCat = async (revenueCatUserId) => {
     if (!config.REVENUECAT_API_KEY) {
-        return null;
+        return { user: null, matchType: null };
     }
 
     try {
-        const response = await axios.get(`https://api.revenuecat.com/v1/subscribers/${encodeURIComponent(revenueCatUserId)}`, {
-            headers: {
-                Authorization: `Bearer ${config.REVENUECAT_API_KEY}`,
-            },
-            timeout: 5000,
-        });
+        const response = await axios.get(
+            `https://api.revenuecat.com/v1/subscribers/${encodeURIComponent(revenueCatUserId)}`,
+            {
+                headers: {
+                    Authorization: `Bearer ${config.REVENUECAT_API_KEY}`,
+                },
+                timeout: 5000,
+            }
+        );
 
         const subscriber = response.data?.subscriber;
         if (!subscriber) {
-            return null;
+            return { user: null, matchType: null };
         }
 
-        // Try subscriber attributes first
+        // 1) Try mongo_user_id attribute (strongest signal)
         const attributeUserId = subscriber.attributes?.mongo_user_id?.value;
         if (attributeUserId && mongoose.Types.ObjectId.isValid(attributeUserId)) {
             const attrUser = await User.findById(attributeUserId);
             if (attrUser) {
-                return attrUser;
+                if (process.env.NODE_ENV !== 'production') {
+                    console.log('[RC Restore][Backend] Matched via mongo_user_id', {
+                        revenueCatUserId,
+                        userId: attrUser._id.toString(),
+                    });
+                }
+                return { user: attrUser, matchType: 'mongo_user_id' };
             }
         }
 
-        // Collect all aliases including the current app user ID
-        const aliases = [revenueCatUserId, ...(subscriber.aliases || [])];
+        // 2) Collect all aliases including the current app user ID
+        const aliases = [revenueCatUserId, subscriber.original_app_user_id, ...(subscriber.aliases || [])]
+            .filter(Boolean);
 
         // First, try to find by MongoDB ObjectId
         for (const alias of aliases) {
             if (mongoose.Types.ObjectId.isValid(alias)) {
                 const user = await User.findById(alias);
                 if (user) {
-                    return user;
+                    if (process.env.NODE_ENV !== 'production') {
+                        console.log('[RC Restore][Backend] Matched via RC alias ObjectId', {
+                            revenueCatUserId,
+                            alias,
+                            userId: user._id.toString(),
+                        });
+                    }
+                    return { user, matchType: 'alias_object_id' };
                 }
             }
         }
 
         // Then, try to find by subscriptionOriginalAppUserId or revenueCatAliases
-        for (const alias of aliases) {
-            const user = await User.findOne({
-                $or: [
-                    { subscriptionOriginalAppUserId: alias },
-                    { revenueCatAliases: { $in: [alias] } }
-                ]
-            });
-            if (user) {
-                return user;
+        const user = await User.findOne({
+            $or: [
+                { subscriptionOriginalAppUserId: { $in: aliases } },
+                { revenueCatAliases: { $in: aliases } },
+            ],
+        });
+        if (user) {
+            if (process.env.NODE_ENV !== 'production') {
+                console.log('[RC Restore][Backend] Matched via RC alias subscription field', {
+                    revenueCatUserId,
+                    userId: user._id.toString(),
+                });
             }
+            return { user, matchType: 'alias_subscription_field' };
         }
-
     } catch (error) {
+        if (process.env.NODE_ENV !== 'production') {
+            console.error('[RC Restore][Backend] RC API error', {
+                revenueCatUserId,
+                message: error?.message,
+                status: error?.response?.status,
+            });
+        }
     }
 
-    return null;
+    return { user: null, matchType: null };
 };
+
+async function findUserByProductIdAndPurchaseDate(productId, originalPurchaseDate) {
+    if (!productId || !originalPurchaseDate) return null;
+    const purchaseDate = new Date(originalPurchaseDate);
+    if (Number.isNaN(purchaseDate.getTime())) return null;
+    const windowStart = new Date(purchaseDate.getTime() - SUB_LOOKUP_WINDOW_MS);
+    const windowEnd = new Date(purchaseDate.getTime() + SUB_LOOKUP_WINDOW_MS);
+    // Match on product id plus purchase time window. Product ids in Mongo may
+    // include store-specific suffixes (e.g. "broski_weekly:broski-weekly"), so
+    // we allow a prefix match on the bare productId as well.
+    const candidates = await User.find({
+        subscriptionProductId: { $regex: new RegExp(`^${productId}`) },
+        subscriptionOriginalPurchaseDate: { $gte: windowStart, $lte: windowEnd },
+    }).limit(2);
+
+    if (candidates.length === 0) {
+        return null;
+    }
+
+    if (candidates.length > 1) {
+        if (process.env.NODE_ENV !== 'production') {
+            console.error('[RC Restore][Backend] Ambiguous metadata fallback mapping', {
+                productId,
+                originalPurchaseDate,
+                userIds: candidates.map((u) => u._id.toString()),
+            });
+        }
+        // Signal ambiguity to caller via a custom error; caller should fail closed.
+        throw new ExpressError('Multiple users found for subscription metadata', 409);
+    }
+
+    return candidates[0];
+}
 
 const appendRevenueCatAlias = async (user, alias) => {
     if (!alias) return;
@@ -287,57 +416,154 @@ const appendRevenueCatAlias = async (user, alias) => {
 };
 
 const generateUserTokenFromRevenueCat = async (req, res) => {
-    const { revenueCatUserId } = req.body;
+    const { revenueCatUserId, fallback } = req.body;
 
     if (!revenueCatUserId) {
         throw new ExpressError('RevenueCat user ID is required', 400);
     }
 
     try {
+        // Normalize fallback dates
+        const normalizedFallback = {
+            productId: fallback?.productId || null,
+            originalPurchaseDate: fallback?.originalPurchaseDate || null,
+            latestPurchaseDate: fallback?.latestPurchaseDate || null,
+            originalAppUserId: fallback?.originalAppUserId || null,
+        };
 
-        const user = await (async () => {
-            const conditions = [
-                { subscriptionOriginalAppUserId: revenueCatUserId },
-                { revenueCatAliases: { $in: [revenueCatUserId] } }
-            ];
+        if (process.env.NODE_ENV !== 'production') {
+            console.log('[RC Restore][Backend] Request received', {
+                revenueCatUserId,
+                hasFallback: Boolean(fallback),
+                productId: normalizedFallback.productId,
+                originalPurchaseDate: normalizedFallback.originalPurchaseDate,
+            });
+        }
 
-            if (mongoose.Types.ObjectId.isValid(revenueCatUserId)) {
-                conditions.unshift({ _id: revenueCatUserId });
+        const aliasCandidates = [
+            revenueCatUserId,
+            normalizedFallback.originalAppUserId,
+        ].filter(Boolean);
+
+        let resolvedUser = null;
+        let matchType = null;
+
+        // Step A: Strong alias-based mapping (priority level 2)
+        if (aliasCandidates.length > 0) {
+            // 1) Direct ObjectId matches
+            const objectIdCandidates = aliasCandidates.filter((id) => mongoose.Types.ObjectId.isValid(id));
+            let aliasObjectIdUser = null;
+            const seenIds = new Set();
+            for (const id of objectIdCandidates) {
+                const user = await User.findById(id);
+                if (user) {
+                    seenIds.add(user._id.toString());
+                    aliasObjectIdUser = user;
+                }
+            }
+            if (seenIds.size > 1) {
+                if (process.env.NODE_ENV !== 'production') {
+                    console.error('[RC Restore][Backend] Ambiguous alias ObjectId mapping', {
+                        revenueCatUserId,
+                        candidateUserIds: Array.from(seenIds),
+                    });
+                }
+                throw new ExpressError('Multiple candidate users found for this subscription', 409);
+            }
+            if (aliasObjectIdUser) {
+                resolvedUser = aliasObjectIdUser;
+                matchType = 'alias_object_id';
             }
 
-            const found = await User.findOne({ $or: conditions });
-            if (found) {
-                return found;
+            // 2) subscriptionOriginalAppUserId / revenueCatAliases
+            if (!resolvedUser) {
+                const aliasUser = await User.findOne({
+                    $or: [
+                        { subscriptionOriginalAppUserId: { $in: aliasCandidates } },
+                        { revenueCatAliases: { $in: aliasCandidates } },
+                    ],
+                });
+                if (aliasUser) {
+                    resolvedUser = aliasUser;
+                    matchType = 'alias_subscription_field';
+                }
             }
-            const viaRevenueCatApi = await fetchUserIdFromRevenueCat(revenueCatUserId);
-            if (viaRevenueCatApi) {
-                return viaRevenueCatApi;
+        }
+
+        // Step B: RevenueCat REST API (priority level 1 then 2)
+        if (!resolvedUser) {
+            const { user: apiUser, matchType: apiMatchType } = await fetchUserIdFromRevenueCat(revenueCatUserId);
+            if (apiUser) {
+                resolvedUser = apiUser;
+                matchType = apiMatchType || 'revenuecat_api';
             }
+        }
 
-            return null;
-        })();
+        // Step C: Metadata fallback (priority level 3)
+        if (!resolvedUser && normalizedFallback.productId && normalizedFallback.originalPurchaseDate) {
+            const byMeta = await findUserByProductIdAndPurchaseDate(
+                normalizedFallback.productId,
+                normalizedFallback.originalPurchaseDate
+            );
+            if (byMeta) {
+                if (process.env.NODE_ENV !== 'production') {
+                    console.log('[RC Restore][Backend] Matched user via metadata', {
+                        revenueCatUserId,
+                        userId: byMeta._id.toString(),
+                        productId: normalizedFallback.productId,
+                        originalPurchaseDate: normalizedFallback.originalPurchaseDate,
+                    });
+                }
+                resolvedUser = byMeta;
+                matchType = 'metadata_fallback';
+            }
+        }
 
-        if (!user) {
+        if (!resolvedUser) {
+            if (process.env.NODE_ENV !== 'production') {
+                console.warn('[RC Restore][Backend] No mapping found', {
+                    revenueCatUserId,
+                    hasFallback: Boolean(fallback),
+                    productId: normalizedFallback.productId,
+                    originalPurchaseDate: normalizedFallback.originalPurchaseDate,
+                });
+            }
             throw new ExpressError('User not found', 404);
         }
 
-        await appendRevenueCatAlias(user, revenueCatUserId);
+        await appendRevenueCatAlias(resolvedUser, revenueCatUserId);
+        processPendingForRcIds([revenueCatUserId]).catch(() => { });
 
         const token = jwt.sign(
-            { userId: user._id },
+            { userId: resolvedUser._id },
             config.JWT_SECRET,
             { expiresIn: '30d' }
         );
+
+        if (process.env.NODE_ENV !== 'production') {
+            console.log('[RC Restore][Backend] Mapping success', {
+                revenueCatUserId,
+                userId: resolvedUser._id.toString(),
+                matchType,
+            });
+        }
 
         res.json({
             success: true,
             message: 'Token generated successfully',
             token,
-            userId: user._id.toString()
+            userId: resolvedUser._id.toString(),
+            matchType: matchType || null,
         });
     } catch (error) {
         if (error.status) {
             throw error;
+        }
+        if (process.env.NODE_ENV !== 'production') {
+            console.error('[RC Restore][Backend] Failed to generate token from RevenueCat', {
+                revenueCatUserId,
+                message: error?.message,
+            });
         }
         throw new ExpressError('Failed to generate token', 500);
     }
@@ -361,6 +587,7 @@ const registerRevenueCatAlias = async (req, res) => {
     }
 
     await appendRevenueCatAlias(user, revenueCatUserId);
+    processPendingForRcIds([revenueCatUserId]).catch(() => { });
 
     res.json({
         success: true,
@@ -382,16 +609,17 @@ const getUserProfile = async (req, res) => {
 
         await ensureDailyChallengeForUser(user);
 
+        const effective = getEffectiveSubscription(user);
         const userProfile = {
             id: user._id,
             name: user.name,
             role: user.role,
             hasCompletedOnboarding: user.hasCompletedOnboarding,
-            // Subscription
-            subscriptionTier: user.subscriptionTier,
+            // Subscription (server-computed, expiry-safe)
+            subscriptionTier: effective.subscriptionTier,
             subscriptionPlan: user.subscriptionPlan,
-            isSubscribed: user.isSubscribed,
-            subscriptionStatus: user.subscriptionStatus,
+            isSubscribed: effective.isSubscribed,
+            subscriptionStatus: effective.subscriptionStatus,
             subscriptionProductId: user.subscriptionProductId,
             subscriptionEntitlementId: user.subscriptionEntitlementId,
             subscriptionOriginalAppUserId: user.subscriptionOriginalAppUserId,
@@ -437,6 +665,7 @@ const getUserProfile = async (req, res) => {
             isActive: user.isActive,
             lastLogin: user.lastLogin,
             lastSyncTime: user.lastSyncTime,
+            notificationsEnabled: user.notificationsEnabled,
             createdAt: user.createdAt,
             updatedAt: user.updatedAt
         };
@@ -454,10 +683,21 @@ const getUserProfile = async (req, res) => {
     }
 };
 
-// Update user profile
+const SUBSCRIPTION_FIELDS_BLOCKED = [
+    'subscriptionTier', 'subscriptionPlan', 'isSubscribed', 'subscriptionStatus',
+    'subscriptionProductId', 'subscriptionEntitlementId', 'subscriptionOriginalAppUserId',
+    'subscriptionStore', 'subscriptionEnvironment', 'subscriptionPlatform',
+    'subscriptionLatestPurchaseDate', 'subscriptionOriginalPurchaseDate', 'subscriptionExpirationDate',
+    'subscriptionWillRenew', 'isInTrialPeriod', 'revenueCatAliases',
+    'lastWebhookEventAt', 'lastWebhookEventType', 'lastWebhookEventId'
+];
+
+// Update user profile (subscription fields are read-only, webhook-only)
 const updateUserProfile = async (req, res) => {
     const { userId } = req.params;
-    const updates = req.body;
+    const raw = req.body || {};
+    const updates = { ...raw };
+    SUBSCRIPTION_FIELDS_BLOCKED.forEach(f => delete updates[f]);
 
     try {
         // Find and update user in database
@@ -474,7 +714,6 @@ const updateUserProfile = async (req, res) => {
         if (!user) {
             throw new ExpressError('User not found', 404);
         }
-
 
         res.json({
             success: true,
@@ -501,7 +740,6 @@ const updateUserProfile = async (req, res) => {
             }
         });
     } catch (error) {
-
         // If it's already an ExpressError, re-throw it with the original status
         if (error.status) {
             throw error;
@@ -561,162 +799,6 @@ const incrementUsage = async (req, res) => {
     });
 };
 
-// Sync subscription data coming from the client (RevenueCat)
-const syncSubscriptionFromClient = async (req, res) => {
-    const userId = req.user?.userId;
-
-    if (!userId) {
-        throw new ExpressError('User authentication required', 401);
-    }
-
-    const {
-        status,
-        plan,
-        productId,
-        entitlementId,
-        originalAppUserId,
-        store,
-        environment,
-        platform,
-        latestPurchaseDate,
-        originalPurchaseDate,
-        expirationDate,
-        willRenew,
-        periodType
-    } = req.body || {};
-
-    // Debug: Log received periodType
-    if (process.env.NODE_ENV !== 'production') {
-        console.log('[Subscription Sync] Received periodType:', periodType, 'from body:', JSON.stringify(req.body, null, 2));
-    }
-
-    const allowedStatus = ['none', 'active', 'expired', 'canceled', 'billing_issue'];
-    const allowedPlans = ['weekly', 'monthly', 'yearly'];
-
-    const normalizedStatus = allowedStatus.includes(status) ? status : 'none';
-    const normalizedPlan = allowedPlans.includes(plan) ? plan : null;
-    const dateOrNull = (value) => (value ? new Date(value) : null);
-
-    // Check if user is in trial period
-    // Also check dates to infer trial status if periodType is not provided
-    let isInTrial = periodType === 'trial' || periodType === 'TRIAL';
-
-    // Fallback: If periodType is not 'trial' but subscription is active and dates suggest trial
-    // This handles cases where RevenueCat returns "NORMAL" even during trial period
-    if (!isInTrial && normalizedStatus === 'active' && originalPurchaseDate && expirationDate) {
-        const purchaseDate = new Date(originalPurchaseDate);
-        const expDate = new Date(expirationDate);
-        const now = new Date();
-
-        const daysSinceOriginal = (now.getTime() - purchaseDate.getTime()) / (1000 * 60 * 60 * 24);
-        const daysUntilExpiration = (expDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24);
-        const totalDays = (expDate.getTime() - purchaseDate.getTime()) / (1000 * 60 * 60 * 24);
-
-        // If subscription is within first 3-4 days of original purchase and expires soon, it's likely a trial
-        // Also check if total duration is around 3 days (trial period)
-        if (daysSinceOriginal <= 4 && daysUntilExpiration >= 0 && daysUntilExpiration <= 4 && totalDays >= 2.5 && totalDays <= 4) {
-            isInTrial = true;
-            if (process.env.NODE_ENV !== 'production') {
-                console.log('[Subscription Sync] Detected trial based on dates:', {
-                    daysSinceOriginal: daysSinceOriginal.toFixed(2),
-                    daysUntilExpiration: daysUntilExpiration.toFixed(2),
-                    totalDays: totalDays.toFixed(2),
-                    originalPurchaseDate,
-                    expirationDate
-                });
-            }
-        }
-    }
-
-    const updates = {
-        subscriptionTier: normalizedStatus === 'active' ? 'pro' : 'free',
-        isSubscribed: normalizedStatus === 'active',
-        subscriptionPlan: normalizedPlan,
-        subscriptionStatus: normalizedStatus,
-        subscriptionProductId: productId || null,
-        subscriptionEntitlementId: entitlementId || null,
-        subscriptionStore: store || null,
-        subscriptionEnvironment: environment || null,
-        subscriptionPlatform: platform || null,
-        subscriptionLatestPurchaseDate: dateOrNull(latestPurchaseDate),
-        subscriptionOriginalPurchaseDate: dateOrNull(originalPurchaseDate),
-        subscriptionExpirationDate: dateOrNull(expirationDate),
-        subscriptionWillRenew: typeof willRenew === 'boolean' ? willRenew : false,
-        isInTrialPeriod: isInTrial,
-        lastSyncTime: new Date()
-    };
-
-    const hasSubscriptionHistory =
-        normalizedStatus !== 'none' ||
-        Boolean(originalPurchaseDate) ||
-        Boolean(expirationDate) ||
-        Boolean(productId) ||
-        Boolean(entitlementId);
-
-    if (hasSubscriptionHistory) {
-        updates.hasCompletedOnboarding = true;
-    }
-
-    const updateDoc = { $set: updates };
-
-    const aliasesToAdd = [];
-    let resolvedOriginalAppUserId = null;
-
-    if (originalAppUserId) {
-        aliasesToAdd.push(originalAppUserId);
-
-        if (mongoose.Types.ObjectId.isValid(originalAppUserId) && !originalAppUserId.startsWith('$RC')) {
-            resolvedOriginalAppUserId = originalAppUserId;
-        }
-    }
-
-    if (!resolvedOriginalAppUserId && mongoose.Types.ObjectId.isValid(userId)) {
-        resolvedOriginalAppUserId = userId;
-    }
-
-    if (resolvedOriginalAppUserId) {
-        updateDoc.$set.subscriptionOriginalAppUserId = resolvedOriginalAppUserId;
-        if (!aliasesToAdd.includes(resolvedOriginalAppUserId)) {
-            aliasesToAdd.push(resolvedOriginalAppUserId);
-        }
-    }
-
-    if (aliasesToAdd.length > 0) {
-        updateDoc.$addToSet = { revenueCatAliases: { $each: aliasesToAdd } };
-    }
-
-    const user = await User.findByIdAndUpdate(userId, updateDoc, { new: true, runValidators: true });
-
-    if (!user) {
-        throw new ExpressError('User not found', 404);
-    }
-
-    res.json({
-        success: true,
-        message: 'Subscription synced successfully',
-        data: {
-            subscriptionTier: user.subscriptionTier,
-            subscriptionPlan: user.subscriptionPlan,
-            subscriptionStatus: user.subscriptionStatus,
-            isSubscribed: user.isSubscribed,
-            subscriptionProductId: user.subscriptionProductId,
-            subscriptionEntitlementId: user.subscriptionEntitlementId,
-            subscriptionOriginalAppUserId: user.subscriptionOriginalAppUserId,
-            subscriptionStore: user.subscriptionStore,
-            subscriptionEnvironment: user.subscriptionEnvironment,
-            subscriptionPlatform: user.subscriptionPlatform,
-            subscriptionLatestPurchaseDate: user.subscriptionLatestPurchaseDate,
-            subscriptionOriginalPurchaseDate: user.subscriptionOriginalPurchaseDate,
-            subscriptionExpirationDate: user.subscriptionExpirationDate,
-            subscriptionWillRenew: user.subscriptionWillRenew,
-            isInTrialPeriod: user.isInTrialPeriod,
-            trialRequestCount: user.trialRequestCount,
-            lastTrialRequestResetDate: user.lastTrialRequestResetDate,
-            lastSyncTime: user.lastSyncTime
-        }
-    });
-};
-
 // Find user by subscription metadata (productId + originalPurchaseDate)
 const findUserBySubscriptionMetadata = async (req, res) => {
     const { productId, originalPurchaseDate } = req.body || {};
@@ -731,8 +813,8 @@ const findUserBySubscriptionMetadata = async (req, res) => {
         throw new ExpressError('Invalid originalPurchaseDate', 400);
     }
 
-    const windowStart = new Date(purchaseDate.getTime() - 5 * 60 * 1000);
-    const windowEnd = new Date(purchaseDate.getTime() + 5 * 60 * 1000);
+    const windowStart = new Date(purchaseDate.getTime() - SUB_LOOKUP_WINDOW_MS);
+    const windowEnd = new Date(purchaseDate.getTime() + SUB_LOOKUP_WINDOW_MS);
 
     if (process.env.NODE_ENV !== 'production') {
         console.log('[Subscription Lookup]', {
@@ -743,12 +825,12 @@ const findUserBySubscriptionMetadata = async (req, res) => {
         });
     }
 
-    const user = await User.findOne({
+    const candidates = await User.find({
         subscriptionProductId: productId,
         subscriptionOriginalPurchaseDate: { $gte: windowStart, $lte: windowEnd }
-    });
+    }).limit(2);
 
-    if (!user) {
+    if (candidates.length === 0) {
         if (process.env.NODE_ENV !== 'production') {
             console.log('[Subscription Lookup] No user found for', {
                 productId,
@@ -758,13 +840,24 @@ const findUserBySubscriptionMetadata = async (req, res) => {
         throw new ExpressError('User not found', 404);
     }
 
+    if (candidates.length > 1) {
+        if (process.env.NODE_ENV !== 'production') {
+            console.error('[Subscription Lookup] Ambiguous subscription metadata mapping', {
+                productId,
+                originalPurchaseDate,
+                userIds: candidates.map((u) => u._id.toString()),
+            });
+        }
+        throw new ExpressError('Multiple users found for subscription metadata', 409);
+    }
+
     if (process.env.NODE_ENV !== 'production') {
-        console.log('[Subscription Lookup] Found user', user._id.toString());
+        console.log('[Subscription Lookup] Found user', candidates[0]._id.toString());
     }
 
     res.json({
         success: true,
-        userId: user._id.toString()
+        userId: candidates[0]._id.toString()
     });
 };
 
@@ -968,15 +1061,29 @@ const setDailyConfidence = async (req, res) => {
     });
 };
 
-// Get all users (Admin only)
+// Get users (Admin only) - paginated with effective subscription
 const getAllUsers = async (req, res) => {
     try {
-        const users = await User.find({}).select('-__v').sort({ createdAt: -1 });
+        const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+        const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 50));
+        const sort = req.query.sort === 'createdAt' ? { createdAt: 1 } : { createdAt: -1 };
+        const skip = (page - 1) * limit;
+        const users = await User.find({}).select('-__v').sort(sort).skip(skip).limit(limit + 1).lean();
+        const hasMore = users.length > limit;
+        const data = (hasMore ? users.slice(0, limit) : users).map((u) => {
+            const effective = getEffectiveSubscription(u);
+            return {
+                ...u,
+                subscriptionTier: effective.subscriptionTier,
+                subscriptionStatus: effective.subscriptionStatus,
+                isSubscribed: effective.isSubscribed,
+            };
+        });
 
         res.json({
             success: true,
-            data: users,
-            count: users.length
+            data,
+            pagination: { page, limit, hasMore },
         });
     } catch (error) {
         throw new ExpressError('Failed to fetch users', 500);
@@ -1068,6 +1175,7 @@ const deleteOwnAccount = async (req, res) => {
 };
 
 module.exports = {
+    registerAnonymous,
     registerUser,
     generateUserToken,
     generateUserTokenFromRevenueCat,
@@ -1076,7 +1184,6 @@ module.exports = {
     updateUserProfile,
     checkUsageLimit,
     incrementUsage,
-    syncSubscriptionFromClient,
     getSavedChatReplies,
     addSavedChatReply,
     deleteSavedChatReply,

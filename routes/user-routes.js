@@ -1,9 +1,13 @@
 const express = require('express');
 const router = express.Router();
 const wrapAsync = require('../utils/wrapAsync');
-const { authenticateUser, authenticateToken, requireAdmin, requireValidSubscription } = require('../middleware/auth');
+const { authenticateUser, authenticateToken, requireAdmin } = require('../middleware/auth');
 const { generalRateLimit, registrationRateLimit } = require('../middleware/rateLimiting');
+const { reconcileSubscriptionFromRevenueCat } = require('../controllers/subscription-reconcile-controller');
+const { registerPushToken, deletePushToken } = require('../controllers/push-token-controller');
+const { pushTokenRateLimit, pushTokenDeleteRateLimit } = require('../middleware/rateLimiting');
 const {
+    registerAnonymous,
     registerUser,
     generateUserToken,
     generateUserTokenFromRevenueCat,
@@ -12,7 +16,6 @@ const {
     updateUserProfile,
     checkUsageLimit,
     incrementUsage,
-    syncSubscriptionFromClient,
     completeDailyChallenge,
     completeDailyDrill,
     setDailyConfidence,
@@ -27,6 +30,9 @@ const {
 } = require('../controllers/user-controller');
 
 // ============ USER MANAGEMENT ROUTES ============
+
+// Anonymous registration (no onboarding - Get Started Free)
+router.post('/register/anon', registrationRateLimit, wrapAsync(registerAnonymous));
 
 // User registration (rate limited)
 router.post('/register', registrationRateLimit, wrapAsync(registerUser));
@@ -51,13 +57,14 @@ router.post('/usage/check', authenticateUser, generalRateLimit, wrapAsync(checkU
 // Increment usage count (requires authentication)
 router.post('/usage/increment', authenticateUser, generalRateLimit, wrapAsync(incrementUsage));
 
-// Sync subscription data coming from the device (requires authentication)
-router.post('/subscription/sync', authenticateUser, generalRateLimit, wrapAsync(syncSubscriptionFromClient));
-
 // Saved chat replies (requires authentication)
 router.get('/chat-replies', authenticateUser, generalRateLimit, wrapAsync(getSavedChatReplies));
 router.post('/chat-replies', authenticateUser, generalRateLimit, wrapAsync(addSavedChatReply));
 router.delete('/chat-replies/:replyId', authenticateUser, generalRateLimit, wrapAsync(deleteSavedChatReply));
+
+// Push token (requires authentication, rate limited)
+router.post('/push-token', authenticateUser, pushTokenRateLimit, wrapAsync(registerPushToken));
+router.delete('/push-token', authenticateUser, pushTokenDeleteRateLimit, wrapAsync(deletePushToken));
 
 // Complete daily challenge (requires authentication)
 router.post('/challenge/complete', authenticateUser, generalRateLimit, wrapAsync(completeDailyChallenge));
@@ -65,14 +72,17 @@ router.post('/challenge/complete', authenticateUser, generalRateLimit, wrapAsync
 // Subscription lookup for StoreKit restore (no auth required)
 router.post('/subscription/lookup', generalRateLimit, wrapAsync(findUserBySubscriptionMetadata));
 
-// Complete daily drill (requires authentication)
-router.post('/drill/complete', authenticateUser, requireValidSubscription, generalRateLimit, wrapAsync(completeDailyDrill));
+// Complete daily drill (free, no subscription required)
+router.post('/drill/complete', authenticateUser, generalRateLimit, wrapAsync(completeDailyDrill));
 
-// Set daily confidence message (requires authentication)
-router.post('/confidence/set', authenticateUser, requireValidSubscription, generalRateLimit, wrapAsync(setDailyConfidence));
+// Set daily confidence message (free, no subscription required)
+router.post('/confidence/set', authenticateUser, generalRateLimit, wrapAsync(setDailyConfidence));
 
 // Get all users (Admin only)
 router.get('/all', authenticateToken, requireAdmin, generalRateLimit, wrapAsync(getAllUsers));
+
+// Reconcile subscription from RevenueCat (Admin only)
+router.post('/subscription/reconcile/:userId', authenticateToken, requireAdmin, generalRateLimit, wrapAsync(reconcileSubscriptionFromRevenueCat));
 
 // Toggle user status (Admin only)
 router.put('/:userId/toggle-status', authenticateToken, requireAdmin, generalRateLimit, wrapAsync(toggleUserStatus));

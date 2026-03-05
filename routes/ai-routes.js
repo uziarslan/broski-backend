@@ -28,17 +28,17 @@ const upload = multer({
 // Chat Coach - Generate reply suggestions (requires user authentication)
 router.post('/chat-replies', authenticateUser, requireActiveUser, requireValidSubscription, requireActiveSubscription, checkTrialRequestLimit, aiRateLimit, wrapAsync(generateChatReplies));
 
-// Rizz Drills - Generate daily drill (requires user authentication)
-router.get('/rizz-drill', authenticateUser, requireActiveUser, requireValidSubscription, requireActiveSubscription, checkTrialRequestLimit, aiRateLimit, wrapAsync(generateDailyRizzDrill));
+// Rizz Drills - Generate daily drill (free, no subscription required)
+router.get('/rizz-drill', authenticateUser, requireActiveUser, checkTrialRequestLimit, aiRateLimit, wrapAsync(generateDailyRizzDrill));
 
-// Rizz Drills - Score user response (requires user authentication)
-router.post('/score-drill', authenticateUser, requireActiveUser, requireValidSubscription, requireActiveSubscription, aiRateLimit, wrapAsync(scoreRizzDrillResponse));
+// Rizz Drills - Score user response (free, no subscription required)
+router.post('/score-drill', authenticateUser, requireActiveUser, aiRateLimit, wrapAsync(scoreRizzDrillResponse));
 
-// Confidence - Generate confidence message (requires user authentication)
-router.get('/confidence-message', authenticateUser, requireActiveUser, requireValidSubscription, requireActiveSubscription, aiRateLimit, wrapAsync(generateConfidenceMessage));
+// Confidence - Generate confidence message (free, no subscription required)
+router.get('/confidence-message', authenticateUser, requireActiveUser, aiRateLimit, wrapAsync(generateConfidenceMessage));
 
-// Awkward Situations - Generate recovery messages (requires user authentication)
-router.post('/awkward-situation-recovery', authenticateUser, requireActiveUser, requireValidSubscription, requireActiveSubscription, checkTrialRequestLimit, aiRateLimit, wrapAsync(generateAwkwardSituationRecovery));
+// Awkward Situations - Generate recovery messages (free, no subscription required)
+router.post('/awkward-situation-recovery', authenticateUser, requireActiveUser, checkTrialRequestLimit, aiRateLimit, wrapAsync(generateAwkwardSituationRecovery));
 
 // Screenshot Analysis (requires user authentication)
 router.post('/analyze-screenshot', authenticateUser, requireActiveUser, requireValidSubscription, requireActiveSubscription, checkTrialRequestLimit, aiRateLimit, upload.single('image'), wrapAsync(analyzeScreenshot));

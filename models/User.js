@@ -80,6 +80,18 @@ const userSchema = new mongoose.Schema({
         type: [String],
         default: []
     },
+    lastWebhookEventAt: {
+        type: Date,
+        default: null
+    },
+    lastWebhookEventType: {
+        type: String,
+        default: null
+    },
+    lastWebhookEventId: {
+        type: String,
+        default: null
+    },
     // Onboarding data
     hasCompletedOnboarding: {
         type: Boolean,
@@ -228,9 +240,28 @@ const userSchema = new mongoose.Schema({
     },
     lastLogin: {
         type: Date
+    },
+    // Push notifications
+    notificationsEnabled: {
+        type: Boolean,
+        default: true
+    },
+    lastChallengeReminderSentAt: {
+        type: Date,
+        default: null
+    },
+    timezone: {
+        type: String,
+        default: null
     }
 }, {
     timestamps: true
 });
+
+userSchema.index({ subscriptionOriginalAppUserId: 1 });
+userSchema.index({ revenueCatAliases: 1 });
+userSchema.index({ subscriptionStatus: 1 });
+userSchema.index({ lastWebhookEventAt: 1 });
+userSchema.index({ subscriptionProductId: 1, subscriptionOriginalPurchaseDate: 1 });
 
 module.exports = mongoose.model('User', userSchema);
