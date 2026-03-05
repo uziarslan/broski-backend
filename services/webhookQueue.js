@@ -15,7 +15,7 @@ function getRedisOpts() {
     const opts = { maxRetriesPerRequest: null };
     // Heroku Redis / Key-Value Store requires TLS; Bull doesn't auto-enable it for rediss://
     if (REDIS_URL.startsWith('rediss://')) {
-        opts.tls = { rejectUnauthorized: true };
+        opts.tls = { rejectUnauthorized: false };
     }
     return opts;
 }
