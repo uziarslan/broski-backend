@@ -59,8 +59,23 @@ async function sendReminderToUser(userId, tokens) {
             const resp = await app.messaging().send({
                 ...message,
                 token: t.token,
-                android: { priority: 'high' },
-                apns: { payload: { aps: { contentAvailable: true } } },
+                android: {
+                    priority: 'high',
+                    notification: {
+                        channelId: 'challenge_reminders',
+                        defaultSound: true,
+                        defaultVibrateTimings: true,
+                        priority: 'max',
+                    },
+                },
+                apns: {
+                    payload: {
+                        aps: {
+                            sound: 'default',
+                            badge: 1,
+                        },
+                    },
+                },
             });
             if (resp) {
                 sent++;
